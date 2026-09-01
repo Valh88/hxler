@@ -1,0 +1,6 @@
+-cp source
+-cp test
+-lib utest
+-main hxler.test.TestMain
+--cpp bin/test
+-D HXCPP_M64

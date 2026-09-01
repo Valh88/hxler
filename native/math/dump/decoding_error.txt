@@ -1,0 +1,583 @@
+[{
+	access: [APublic, AStatic]
+	doc: null
+	kind: FFun({
+		args: [{
+			meta: null
+			name: envRaw
+			opt: null
+			type: TPath({
+				name: ErlNifEnv
+				pack: [hxler, nif, raw]
+				params: null
+				sub: null
+			})
+			value: null
+		}, {
+			meta: null
+			name: argc
+			opt: null
+			type: TPath({
+				name: Int
+				pack: []
+				params: null
+				sub: null
+			})
+			value: null
+		}, {
+			meta: null
+			name: argv
+			opt: null
+			type: TPath({
+				name: Pointer
+				pack: [cpp]
+				params: [TPType(TPath({
+					name: NifTerm
+					pack: [hxler, nif, raw]
+					params: null
+					sub: null
+				}))]
+				sub: null
+			})
+			value: null
+		}, {
+			meta: null
+			name: fn
+			opt: null
+			type: TPath({
+				name: Int
+				pack: []
+				params: null
+				sub: null
+			})
+			value: null
+		}]
+		expr: {
+			expr: EBlock([{
+				expr: ESwitch({
+					expr: EParenthesis({
+						expr: EConst(CIdent(fn))
+						pos: #pos
+					})
+					pos: #pos
+				}, [{
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, atomText, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(0, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_add, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(1, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_sum64, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(2, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_greet, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(3, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_fib, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(4, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_safeDiv, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(5, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_listSum, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(6, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_mapSum, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(7, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_both, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(8, null))
+						pos: #pos
+					}]
+				}, {
+					expr: {
+						expr: EBlock([{
+							expr: EReturn({
+								expr: ECall({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(math))
+											pos: #pos
+										}, MathNif, Normal)
+										pos: #pos
+									}, __hx_nif_optOr42, Normal)
+									pos: #pos
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argc))
+									pos: #pos
+								}, {
+									expr: EConst(CIdent(argv))
+									pos: #pos
+								}])
+								pos: #pos
+							})
+							pos: #pos
+						}])
+						pos: #pos
+					}
+					guard: null
+					values: [{
+						expr: EConst(CInt(9, null))
+						pos: #pos
+					}]
+				}], {
+					expr: EBlock([{
+						expr: EReturn({
+							expr: ECall({
+								expr: EField({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(hxler))
+											pos: #pos
+										}, core, Normal)
+										pos: #pos
+									}, NifReturn, Normal)
+									pos: #pos
+								}, errorTerm, Normal)
+								pos: #pos
+							}, [{
+								expr: ENew({
+									name: Env
+									pack: [hxler, core]
+									params: []
+									sub: null
+								}, [{
+									expr: EConst(CIdent(envRaw))
+									pos: #pos
+								}, {
+									expr: EField({
+										expr: EField({
+											expr: EField({
+												expr: EConst(CIdent(hxler))
+												pos: #pos
+											}, core, Normal)
+											pos: #pos
+										}, EnvKind, Normal)
+										pos: #pos
+									}, ProcessBound, Normal)
+									pos: #pos
+								}])
+								pos: #pos
+							}, {
+								expr: EField({
+									expr: EField({
+										expr: EField({
+											expr: EConst(CIdent(hxler))
+											pos: #pos
+										}, core, Normal)
+										pos: #pos
+									}, NifError, Normal)
+									pos: #pos
+								}, BadArg, Normal)
+								pos: #pos
+							}])
+							pos: #pos
+						})
+						pos: #pos
+					}])
+					pos: #pos
+				})
+				pos: #pos
+			}])
+			pos: #pos
+		}
+		params: null
+		ret: TPath({
+			name: NifTerm
+			pack: [hxler, nif, raw]
+			params: null
+			sub: null
+		})
+	})
+	meta: [{
+		name: :keep
+		params: []
+		pos: #pos
+	}]
+	name: __hx_dispatch
+	pos: #pos
+}, {
+	access: []
+	doc: null
+	kind: FVar(null, {
+		expr: EConst(CIdent(null))
+		pos: #pos
+	})
+	meta: [{
+		name: :cppFileCode
+		params: [{
+			expr: EConst(CString(// ---- generated by hxler.macros.EntryBuilder ----
+#include <mutex>
+extern "C" void __boot_all();
+static void hxler_ensure_boot() {
+	static std::once_flag once;
+	std::call_once(once, []() {
+		int top = 0;
+		hx::SetTopOfStack(&top, true);
+		hx::Boot();
+		__boot_all();
+		hx::SetTopOfStack(0, true);
+	});
+}
+struct HxStackGuard {
+	int marker;
+	HxStackGuard() { hx::SetTopOfStack(&marker, true); }
+	~HxStackGuard() { hx::SetTopOfStack(0, true); }
+};
+static ERL_NIF_TERM hx_tramp_0(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 0);
+}
+static ERL_NIF_TERM hx_tramp_1(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 1);
+}
+static ERL_NIF_TERM hx_tramp_2(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 2);
+}
+static ERL_NIF_TERM hx_tramp_3(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 3);
+}
+static ERL_NIF_TERM hx_tramp_4(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 4);
+}
+static ERL_NIF_TERM hx_tramp_5(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 5);
+}
+static ERL_NIF_TERM hx_tramp_6(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 6);
+}
+static ERL_NIF_TERM hx_tramp_7(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 7);
+}
+static ERL_NIF_TERM hx_tramp_8(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 8);
+}
+static ERL_NIF_TERM hx_tramp_9(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+	hxler_ensure_boot();
+	HxStackGuard guard;
+	return math::Entry_obj__hx_dispatch(env, argc, argv, 9);
+}
+static int hx_load_cb(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info) {
+	hxler_ensure_boot();
+	*priv_data = nullptr;
+	return 0;
+}
+static ErlNifFunc hx_funcs[] = {
+	{"atom_text", 1, hx_tramp_0, 0},
+	{"add", 2, hx_tramp_1, 0},
+	{"sum64", 2, hx_tramp_2, 0},
+	{"greet", 1, hx_tramp_3, 0},
+	{"fib", 1, hx_tramp_4, 1},
+	{"safeDiv", 2, hx_tramp_5, 0},
+	{"listSum", 1, hx_tramp_6, 0},
+	{"mapSum", 1, hx_tramp_7, 0},
+	{"both", 2, hx_tramp_8, 0},
+	{"optOr42", 1, hx_tramp_9, 0},
+};
+ERL_NIF_INIT(Elixir.Hxler.Math, hx_funcs, hx_load_cb, NULL, NULL, NULL)
+, DoubleQuotes))
+			pos: #pos
+		}]
+		pos: #pos
+	}]
+	name: null <- expected value
+	pos: #pos
+}]
+line 494: expected value

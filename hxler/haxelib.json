@@ -1,0 +1,13 @@
+
+{
+	"name": "hxler",
+	"license": "MIT",
+	"tags": ["hxler"],
+	"description": "elixir nif library",
+	"version": "0.1.0",
+	"releasenote": "",
+	"contributors": ["vano"],
+	"dependencies": {
+	},
+	"classPath": "source"
+}

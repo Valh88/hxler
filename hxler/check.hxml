@@ -1,0 +1,8 @@
+-cp source
+-cp check
+-main hxler.check.Check
+--cpp bin/check
+-D HXCPP_M64
+-D dll_link
+-D no_shared_libs
+-D hxler_erts_include=C:/Users/simpl/scoop/apps/erlang/27.3.1/erts-15.2.4/include
