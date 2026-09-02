@@ -14,6 +14,7 @@ class TestMain {
 		var runner = new Runner();
 		runner.addCase(new FlagsTest());
 		runner.addCase(new CellTest());
+		runner.addCase(new ValueTypesTest());
 		runner.addCase(new AtomNamesTest());
 		runner.addCase(new ScheduleTest());
 		Report.create(runner);
