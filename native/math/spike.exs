@@ -16,6 +16,11 @@ defmodule Hxler.Math do
   def map_sum(_a), do: :erlang.nif_error(:nif_library_not_loaded)
   def both(_a, _b), do: :erlang.nif_error(:nif_library_not_loaded)
   def opt_or42(_a), do: :erlang.nif_error(:nif_library_not_loaded)
+  def accum_new(), do: :erlang.nif_error(:nif_library_not_loaded)
+  def accum_push(_a, _v), do: :erlang.nif_error(:nif_library_not_loaded)
+  def accum_sum(_a), do: :erlang.nif_error(:nif_library_not_loaded)
+  def accum_len(_a), do: :erlang.nif_error(:nif_library_not_loaded)
+  def is_accum(_t), do: :erlang.nif_error(:nif_library_not_loaded)
 end
 
 IO.puts("add(20, 22)            = #{inspect(Hxler.Math.add(20, 22))}  (want 42)")

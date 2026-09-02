@@ -25,6 +25,12 @@ import cpp.Pointer;
  * RULE (phase-2 heritage): classes with raw Star fields get a
  * no-argument constructor + @:unreflective - Dynamic boxing of void*
  * constructor args generates broken __Create factories (C2664).
+ *
+ * PHASE-5 HANDSHAKE (see AGENTS.md "Modela pamiati"): the object is held
+ * in ResourceCache's immortal holders table (a boot-rooted static array);
+ * `root` in the BEAM frame carries only the integer SLOT INDEX, never a
+ * raw hx::Object* (hxcpp's Immix compactor would not relocate that slot
+ * in foreign BEAM memory, so GCAddRoot there was unreliable).
  */
 @:keep
 @:unreflective
@@ -59,11 +65,11 @@ class ResourceArc<T:Resource> {
 		}
 		var frame:Pointer<ErlNifResourceFrame> = cast block;
 		var frameRef = frame.at(0);
-		var arc = new ResourceArc<T>();
-		untyped __cpp__("{0}.root = (hx::Object*)::hx::Val({1}).asObject()", frameRef, obj);
+		var idx = ResourceCache.store(obj);
+		untyped __cpp__("{0}.root = (hx::Object*)(size_t){1}", frameRef, idx);
 		frameRef.size = total;
 		frameRef.kind = ResourceCache.className(Type.getClass(cast obj));
-		untyped __cpp__("hx::GCAddRoot((hx::Object**)&{0}.root)", frameRef);
+		var arc = new ResourceArc<T>();
 		untyped __cpp__("{0}->init({1}, {2})", arc, block, obj);
 		ResourceCache.trackRelease(arc);
 		return arc;
@@ -140,9 +146,16 @@ class ResourceArc<T:Resource> {
 		if (frame.at(0).kind != kindName) {
 			return null; // different registered type - never hand out T
 		}
+		// read the immortal-holder slot index from the frame and fetch the
+		// object from the (hxcpp-rooted) holder table
+		var idx:Int = untyped __cpp__("(int)(size_t){0}.root", frame.at(0));
+		var held:Dynamic = ResourceCache.fetch(idx);
+		if (held == null) {
+			return null; // object already freed - resource is dead
+		}
 		Wrapper.keepResource(obj);
 		var arc = new ResourceArc<T>();
-		untyped __cpp__("{0}->init({1}, (hx::Object*)*((hx::Object**)&{2}.root))", arc, obj, frame.at(0));
+		untyped __cpp__("{0}->init({1}, {2})", arc, obj, held);
 		ResourceCache.trackRelease(arc);
 		return arc;
 	}

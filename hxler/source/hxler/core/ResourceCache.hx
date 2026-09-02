@@ -13,11 +13,21 @@ import sys.thread.Mutex;
  * lookups are mutex-guarded reads. No TypeId: the class path string
  * doubles as identity and as the frame `kind` tag for decode-time
  * verification.
+ *
+ * RULE (phase-5 handshake, see AGENTS.md "Modela pamiati"): the stored
+ * Haxe object is NOT rooted via GCAddRoot on the BEAM-allocated frame
+ * (hxcpp's Immix compactor does not relocate slots in foreign memory).
+ * Instead the object lives in an immortal hxcpp root table (`holders`,
+ * boot-rooted static array) and the frame carries only its integer SLOT
+ * INDEX. The dtor (glue -> onResourceFree) clears the slot.
  */
 @:keep
+@:headerCode('#include "hxler/core/HxResourceFrame.h"')
 class ResourceCache {
 	static var mutex:Mutex = new Mutex();
 	static var types:Map<String, ErlNifResourceType> = new Map();
+	static var holders:Array<Dynamic> = [];
+	static var freeSlots:Array<Int> = [];
 
 	/** Full dotted name of T (used both as cache key and frame tag). */
 	public static inline function className(cls:Class<Dynamic>):String {
@@ -71,5 +81,59 @@ class ResourceCache {
 		var out = [for (k in types.keys()) k];
 		mutex.release();
 		return out;
+	}
+
+	// ---------------------------------------------------- immortal holders --
+	// Phase-5 handshake: the Haxe object for a BEAM resource is held here
+	// (an hxcpp static array is a permanent GC root), NOT on the BEAM
+	// frame. The frame stores only the slot index; decoding reads the
+	// object back from this table. Slots are reusable (free list) so the
+	// table does not grow without bound.
+
+	/** Stores `obj`, returns its stable slot index to write into a frame. */
+	@:keep
+	public static function store(obj:Dynamic):Int {
+		mutex.acquire();
+		var idx:Int;
+		if (freeSlots.length > 0) {
+			idx = freeSlots.pop();
+			holders[idx] = obj;
+		} else {
+			holders.push(obj);
+			idx = holders.length - 1;
+		}
+		mutex.release();
+		return idx;
+	}
+
+	/** Fetches the object held at `index`, or null if empty/out of range. */
+	public static function fetch(index:Int):Dynamic {
+		mutex.acquire();
+		var v = (index >= 0 && index < holders.length) ? holders[index] : null;
+		mutex.release();
+		return v;
+	}
+
+	/** Releases the holder slot (called from the resource dtor exactly once). */
+	@:keep
+	public static function unhold(index:Int):Void {
+		mutex.acquire();
+		if (index >= 0 && index < holders.length && holders[index] != null) {
+			holders[index] = null;
+			freeSlots.push(index);
+		}
+		mutex.release();
+	}
+
+	/**
+	 * Dtor hook invoked by the generated glue (hx_res_dtor): reads the
+	 * slot index from the frame and releases it. `obj` is the BEAM-allocated
+	 * resource block (== address of the hxler::HxResourceFrame).
+	 */
+	@:keep
+	public static function onResourceFree(obj:cpp.Star<cpp.Void>):Void {
+		var index:Int = untyped __cpp__("(int)(size_t)((hxler::HxResourceFrame*){0})->root", obj);
+		unhold(index);
+		untyped __cpp__("((hxler::HxResourceFrame*){0})->root = 0", obj);
 	}
 }

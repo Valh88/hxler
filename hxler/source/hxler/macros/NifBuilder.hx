@@ -338,7 +338,12 @@ class NifBuilder {
 			return '($valueExpr)';
 		}
 		if (type == "Void") {
-			return 'hxler.core.AtomCache.intern("ok").toTerm($envVar).raw';
+			// hxcpp has no comma operator: `($valueExpr, :ok)` is not
+			// possible, so sequence the real call via an IIFE block whose
+			// result is the :ok atom term. (Without the call, the NIF body
+			// never runs - the phase-5 accumPush bug where all mutations
+			// were silently dropped.)
+			return '(() -> { $valueExpr; return hxler.core.AtomCache.intern("ok").toTerm($envVar).raw; })()';
 		}
 		if (StringTools.startsWith(type, "hxler.core.NifResult<")) {
 			var inner = type.substring("hxler.core.NifResult<".length, type.length - 1);

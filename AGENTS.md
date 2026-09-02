@@ -12,9 +12,9 @@
   (`hxler.core`, `hxler.nif`, `hxler.macros`) + генератор + example.
 
 Сейчас реализованы фазы 0–4 (stateless-NIF'ы полностью рабочие) и
-частично фаза 5 (ресурсы — каркас есть, handshake-баг открыт, см.
-раздел «Фаза 5 — статус»). Пример: `native/math/`, `Hxler.hello/0` —
-заглушка.
+фаза 5 (ресурсы: handshake закрыт — immortal holders, см. раздел
+«Фаза 5 — статус»; остались только будущие up/down-колбэки фазы 6/8).
+Пример: `native/math/`, `Hxler.hello/0` — заглушка.
 
 ## План: hxler — «mini-rustler» на Haxe/HXCPP для Elixir NIF
 
@@ -140,7 +140,7 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   HxStackGuard, ErlNifFunc-таблица, ERL_NIF_INIT. E2E: таблица с
   snake_case-именами, dirty_cpu-флаг из `schedule=`, {:error,:reason} из
   NifError.Term, голый терм из NifResult<Term> (rustler-семантика).
-- **Фаза 5 — Ресурсы (ЧАСТИЧНО, каркас есть; handshake-баг открыт):**
+- **Фаза 5 — Ресурсы (РАБОТАЕТ; handshake закрыт — immortal holders):**
   Реализовано:
   - `hxler/core/Resource.hx` — интерфейс-маркер (в 5a без dtor-хуков).
   - `hxler/core/ResourceArc.hx` — хэндл: BEAM-блок =
@@ -149,10 +149,13 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
     `tryGet/tryGetRaw/decode/encode` (kind-проверка по class-path строке),
     release-once; конструктор БЕЗ аргументов + `@:unreflective` +
     `init(raw,obj)` — Dynamic-фабрика hxcpp не умеет void*-аргументы
-    (C2664 в __Create, правило из фазы 2).
+    (C2664 в __Create, правило из фазы 2). `make` пишет в frame.root
+    СЛОТ-ИНДЕКС immortal-таблицы, `tryGetRaw` читает индекс → fetch.
   - `hxler/core/ResourceCache.hx` — Map<"math.Accum", ErlNifResourceType>
-    (mutex-guarded) + `trackRelease` (финалайзер `_hx_set_finalizer` →
-    `enif_release_resource`, once-флаг в arc).
+    (mutex-guarded) + immortal holders-таблица (`static var holders`,
+    boot-rooted, mutex-guarded: store/fetch/unhold + freeSlots-переиспол-ние)
+    + `trackRelease` (финалайзер `_hx_set_finalizer` →
+    `enif_release_resource`, once-флаг в arc) + `onResourceFree` (dtor-хук).
   - `hxler/nif/raw/ErlNifResourceFrame.hx` + `hxler/core/HxResourceFrame.h`
     (C++ struct, шипится с пакетом; include-путь задаётся define'ом
     `hxler_sdk_include=<package>/source` в hxml → `${hxler_sdk_include}`
@@ -167,12 +170,13 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
     `NifBuilder` поддерживает `hxler.core.ResourceArc<T>` в сигнатурах
     `@:nif` (короткое имя T резолвится в пакет владельца).
   - `EntryBuilder.build(..., loadFn)` — Haxe load-колбэк (регистрация
-    типов), glue: `hx_res_dtor` (GCRemoveRoot + root=0), `hx_res_down`
+    типов), glue: `hx_res_dtor` (обеспечено `hxler_ensure_boot()` +
+    `HxStackGuard`, вызов Haxe `onResourceFree`), `hx_res_down`
     (noop до фазы 6/8), `hxler_resource_type_init()`.
-  E2E-статус: `is_accum`=true, decode/round-trip ВНУТРИ одного вызова
-  работает (`diag_roundtrip`=42), НО изменения объекта НЕ переживают
-  выход из NIF-вызова (count/items = 0 при чтении следующим вызовом) —
-  см. «Фаза 5 — проблема» ниже.
+  E2E-статус (spike5.exs): `accum_len`=10, `accum_sum`=55, `is_accum`=true,
+  badarg, «live sum after 1000 push»=500500 (мутации объекта ПЕРЕЖИВАЮТ
+  границу NIF-вызова), GC stress 8×200 параллельных воркеров — стабильно.
+  Up/down-колбэки ресурсов — фазы 6/8.
   **Можно ли пользоваться без фазы 5: ДА.** Фазы 0–4 самодостаточны для
   stateless-NIF (любые термы, dirty, ETF, паники). Ресурсы нужны только
   для нативного состояния между вызовами (сокеты, буферы, соединения);
@@ -240,8 +244,10 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   `__hxcpp_collect` из BEAM-потоков ПОВЕРХ параллельных NIF-вызовов —
   без крашей и порчи памяти: multi-thread hxcpp GC + SetTopOfStack
   RAII-дисциплина работают на BEAM scheduler-потоках.
-  Ещё не проверено: ResourceArc/GCAddRoot handshake (фаза 5),
-  hxcpp-финалайзеры → enif_release_resource, unload (purge+reload).
+- **Ресурсный handshake (фаза 5) + stress закрыты (spike5.exs):**
+  8 воркеров × 200 ресурсных циклов (new/push/sum + dtor'ы на GC процессов)
+  стабильны; hxcpp-финалайзеры → enif_release_resource работают под
+  `HxStackGuard` в dtor. Ещё не проверено: unload (purge+reload).
 - Компилятор на этой машине — **MSVC из VS 2022** (hxcpp находит сам;
   objdir msvc1964). DLL-зависимости только KERNEL32/USER32 (CRT
   статичен) — mingw runtime DLLs не нужны. mingw остаётся фолбэком.
@@ -279,8 +285,15 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   __boot_all();` под `std::call_once`.
 - Каждый NIF-вызов: `hx::SetTopOfStack(&marker,true)` push …
   `hx::SetTopOfStack(0,true)` pop; BEAM-потоки регистрируются сами.
-- Haxe-объекты в enif-ресурсах между вызовами: frame `{hx::Object* root}`
-  + `hx::GCAddRoot(&root)`, `GCRemoveRoot` в dtor.
+- **Любой Haxe-код ВНЕ трамплина (dtor/down/финалайзер) ОБЯЗАН работать
+  под `hxler_ensure_boot()` + `HxStackGuard`** — BEAM вызывает dtor во
+  время GC процесса на scheduler-потоке без `tlsStackContext`; любой
+  Haxe-доступ (мутекс/массив/аллокация) там = `Bad local allocator -
+  requesting memory from unregistered thread!` (краш BEAM). Зашито в
+  генерируемый glue (EntryBuilder).
+- Haxe-объекты в enif-ресурсах между вызовами: immortal holders-таблица
+  `ResourceCache` (frame хранит слот-индекс, не голый указатель);
+  `GCAddRoot/GCRemoveRoot` на BEAM-памяти НЕ использовать.
 - Haxe-исключения = C++ throw: ловить `catch (Dynamic e)` в трамплине →
   `enif_raise_exception(:nif_panicked)`.
 - ERTS-include передаётся define'ом `hxler_erts_include` (попадает в
@@ -295,16 +308,15 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
 - Два GC не пересекаются по памяти. BEAM: кучи процессов, binary heap
   (refcount), NIF-ресурсы (refcount, не копируются, живут до release).
   hxcpp: Immix mark-sweep, статические корни (boot) + ручные (GCAddRoot).
-- Handshake для Haxe-объекта в enif-ресурсе: C-frame `{hx::Object* root}`
-  живёт ВНУТРИ ресурса (BEAM-память); при alloc `hx::GCAddRoot(&frame->root)`
-  (hxcpp держит и ОБНОВЛЯЕТ слот, если объект перемещается), в dtor
-  `GCRemoveRoot` ДО освобождения frame (BEAM освобождает ресурс после
-  возврата dtor). Ровно один RemoveRoot на ресурс.
-  ⚠️ Этот путь (GCAddRoot на BEAM-памяти) НАДЁЖНЫМ НЕ ОКАЗАЛСЯ — hxcpp
-  Immix compactor **не обновляет** слот-адрес из чужой (BEAM) памяти.
-  Планируемое решение фазы 5: immortal holders-таблица в `ResourceCache`
-  (`static var holders:Array<Dynamic>`), в frame пишется индекс слота, а
-  не голый указатель — см. «Фаза 5 — проблема handshake».
+- Handshake для Haxe-объекта в enif-ресурсе — ЧЕРЕЗ immortal-таблицу
+  держателей в `hxler/core/ResourceCache.hx`: C-frame `{void* root, int
+  size, ::String kind}` хранит только СЛОТ-ИНДЕКС этой таблицы (не голый
+  указатель); хранитель живёт в hxcpp-статике (boot-root, не двигается,
+  слот-адрес в BEAM-памяти не обновляется compactor'ом).
+  ⚠️ Ручной `hx::GCAddRoot(&frame->root)` на BEAM-памяти НАДЁЖНЫМ НЕ
+  ОКАЗАЛСЯ — hxcpp Immix compactor **не обновляет** слот-адрес из чужой
+  (BEAM) памяти. Второй баг этой схемы: удаляемые Haxe-объекты живут в
+  static-корнях → слоты освобождаются dtor'ом через freeSlots (переиспол-ние).
 - `ResourceArc` release — ровно один раз (флаг once), из финалайзера hxcpp.
 - `Term.raw` — примитив (NifTerm = UInt64/UInt32), НЕ hx::Object-поле:
   hxcpp не сканирует BEAM-слова; conservative-скан отбрасывает адреса
@@ -324,56 +336,64 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
 - Ошибки памяти возможны только при нарушении этой дисциплины, которая
   зашита в API, а не при нормальном использовании.
 
-## Фаза 5 — статус и проблема handshake
+## Фаза 5 — статус (handshake ЗАКРЫТ)
 
-### Что сделано
-- [полный чеклист реализованного — см. фазу 5 выше в «Фазы реализации»]
+### Что сделано (полностью)
+Handshake на immortal holders реализован и работает (см. фазу 5 в
+«Фазы реализации»). E2E spike5.exs: accum_len=10, accum_sum=55,
+is_accum=true, live sum после 1000 push=500500, GC stress 8×200
+параллельных воркеров — стабильно.
 
-### Баг handshake (открыт)
-Симптом (E2E `diag*.exs`): `is_accum`=true, round-trip ВНУТРИ одного
-вызова работает (`diag_roundtrip`=42), но изменения Haxe-объекта НЕ
-переживают выход из NIF-вызова — при чтении следующего вызова
-`diag_count(a)`=0, `diag_len(a)`=0 (ожидалось 2).
+### Причина исходного бага handshake (count/len=0 после NIF-вызова)
+Это НЕ была проблема GC-перемещения/GCAddRoot. Корень — баг в
+`NifBuilder.retExpr` для функций с возвратом `Void`: генерировался
+`AtomCache.intern("ok").toTerm(env).raw` БЕЗ `$valueExpr` — сам вызов
+NIF-функции (например `accumPush`) просто не выполнялся, поэтому все
+мутации объекта терялись. Int-функции «работали» только потому, что
+возврат включал call. Исправление — IIFE-блок:
 
-Диагностика:
-- root-слот стабилен между вызовами: `diag_addr` совпадает, `diag_frame`
-  root не меняется;
-- `push` возвращает `:ok` без краша;
-- `enif_get_resource` локально в том же вызове читает живые данные
-  (decode/count работают внутри вызова).
+```
+(() -> { $valueExpr; return hxler.core.AtomCache.intern("ok").toTerm($envVar).raw; })()
+```
 
-Гипотеза-причина: hxcpp GC — Immix compacting, объект MОЖЕТ перемещаться.
-GCAddRoot хранит адрес слота, но hxcpp-движок **не обновляет** слот из
-BEAM-памяти (frame живёт в BEAM-куче, вне регионов hxcpp) → после
-collection чтение идёт по устаревшему/перемещённому адресу. То есть
-ручной GCAddRoot на чужой (BEAM) памяти — ненадёжен.
+(Haxe не имеет оператора-запятой, поэтому `($valueExpr, :ok)` невозможен.)
 
-### Планируемое решение
-Отказаться от ручного GCAddRoot/GCRemoveRoot на BEAM-памяти. Вместо этого:
+Параллельно, как независимый шаг, отвязка от GCAddRoot на BEAM-памяти
+сделана и оставлена (см. «Планируемое решение» ниже) — frame хранит
+слот-индекс immortal-таблицы, а не голый указатель.
+
+### Второй баг (многопоточный краш) — ЗАКРЫТ
+`Bad local allocator - requesting memory from unregistered thread!`
+при параллельных ресурсных операциях (8 spawn-воркеров × 200). Причина:
+hx_res_dtor вызывался BEAM'ом во время GC процесса — на scheduler-потоке
+БЕЗ hxcpp-контекста (нет `tlsStackContext`), и любой Haxe-доступ
+(mutex/массив/аллокация) в `onResourceFree` падал. Исправление: в glue
+`hx_res_dtor` (и `hx_res_down`) добавлены `hxler_ensure_boot();` +
+`HxStackGuard guard;` — как и в обычных трамплинах.
+
+### Планируемое/выполненное решение handshake
 - `ResourceCache` держит `static var holders:Array<Dynamic>` — immortal
   hxcpp-таблица (статические корни boot'атся и живут вечно);
-- ARC.store(obj) → index (слот в holders), ARC.fetch(index) → obj;
+- `store(obj)` → index (слот в holders), `fetch(index)` → obj;
 - в frame пишется только `index` (не голый указатель);
-- `hx_res_dtor` (glue EntryBuilder) вызывает Haxe-хук unhold(index) для
-  очистки слота.
+- `hx_res_dtor` (glue EntryBuilder) вызывает Haxe-хук `onResourceFree`
+  для очистки слота ровно один раз (freeSlots переиспользует слоты).
 - Haxe-объект держится живым статическим массивом — GCAddRoot больше
   не нужен, объект не перемещается-теряется.
 
-Следующие шаги:
-1. Переписать handshake на immortal holders (см. выше).
-2. Проверить `diag6`: `diag_count(a)`=2, `diag_len(a)`=2.
-3. Полный регресс: check.hxml (Check.dll), utest (test.hxml →
-   TestMain.exe), spike.exs (фаза 4), spike5.exs (фаза 5).
-4. Удалить временные diag-файлы (diag*.exs, ResDiag.hx), обновить
-   статус фазы 5 в AGENTS.md.
+### Ограничения/заметки
+- dtor/down/финалайзеры обязаны работать под `hxler_ensure_boot()` +
+  `HxStackGuard` — BEAM может вызывать их вне NIF-вызова (поток без
+  hxcpp-контекста). Правило зашито в генерируемый glue.
+- Up/down-колбэки ресурсов — фазы 6/8.
+- Регресс после закрытия: check.hxml (Check.dll), utest 64/64,
+  spike.exs (фаза 4), spike5.exs (фаза 5) — все зелёные.
 
 ### Можно ли пользоваться без фазы 5?
 **ДА.** Фазы 0–4 полностью рабочие для stateless-NIF: любые термы,
 Encoder/Decoder, dirty-cpu/io, ETF, паники, badarg, параллельный стресс.
-Ресурсы (`ResourceArc<T>`) — единственный механизм нативного состояния
-между вызовами (сокеты, буферы, соединения, кэши). Пока фаза 5 не
-закрыта, состояние между вызовами хранится на стороне Elixir (в
-процессе/agent/ETS) или ре-гидрируется каждый вызов (ETF-сериализация).
+Ресурсы (`ResourceArc<T>`) — механизм нативного состояния между
+вызовами (сокеты, буферы, соединения, кэши); с фазы 5 они работают.
 
 ## BEAM-потоки под NIF (на этой машине: 8 логических CPU)
 
