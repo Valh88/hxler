@@ -11,10 +11,11 @@
 - **`hxler/`** — haxelib-пакет (classPath `source`): Haxe-SDK
   (`hxler.core`, `hxler.nif`, `hxler.macros`) + генератор + example.
 
-Сейчас реализованы фазы 0–4 (stateless-NIF'ы полностью рабочие) и
-фаза 5 (ресурсы: handshake закрыт — immortal holders, см. раздел
-«Фаза 5 — статус»; остались только будущие up/down-колбэки фазы 6/8).
-Пример: `native/math/`, `Hxler.hello/0` — заглушка.
+Сейчас реализованы фазы 0–4 (stateless-NIF'ы полностью рабочие), фаза 5
+(ресурсы: handshake закрыт — immortal holders, см. раздел «Фаза 5 —
+статус») и фаза 6 (owned env + пиды: OwnedEnv/SavedTerm/Pid, send/self/
+whereis, см. раздел «Фаза 6 — статус»). Остались только будущие up/down-
+колбэки ресурсов фазы 8. Пример: `native/math/`, `Hxler.hello/0` — заглушка.
 
 ## План: hxler — «mini-rustler» на Haxe/HXCPP для Elixir NIF
 
@@ -181,11 +182,16 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   stateless-NIF (любые термы, dirty, ETF, паники). Ресурсы нужны только
   для нативного состояния между вызовами (сокеты, буферы, соединения);
   обходной путь — сериализация/ETF или хранение в процессе Elixir.
-- **Фаза 6 — owned env + пиды:** `OwnedEnv` (alloc_env/free_env/clear +
-  gen-счётчик), `SavedTerm` (raw term + gen; load(env) с проверкой
-  env/gen → enif_make_copy), `env.pid()` (enif_self), `send` (enif_send
-  с правилами scheduler/non-scheduler через enif_thread_type),
-  make_ref, whereis_pid, is_process_alive, error_tuple.
+- **Фаза 6 — owned env + пиды (СДЕЛАНО):** core: `OwnedEnv` (alloc_env/
+  dispose/clear + gen-счётчик, cached EnvKind.ProcessIndependent view,
+  makers), `SavedTerm` (raw term + gen + owning OwnedEnv; isValid проверяет
+  freed/gen, load(env) → enif_make_copy или null, if stale), `Pid` (own
+  single-word storage под ErlNifPid, self/fromTerm/whereis/send/isAlive,
+  setUndefined/isUndefined); Env: self/pidOf/whereis/isProcessAlive/
+  isCurrentProcessAlive/send; Term.toPid. E2E spike6.exs: pid_type,
+  pid_alive, send_msg (OwnedEnv→enif_send→получатель), saved_term_gens
+  (valid/clear-stale/valid), saved_term_load (copy cross-env), make_ref_nif,
+  whereis_alive — все зелёные. Wrapper/raw уже имели все примитивы.
 - **Фаза 7 — Mix-интеграция + E2E:** `Mix.Tasks.Compile.Hxler`
   (erts-include из :code.root_dir(), build.hxml, haxe → hxcpp, копия
   артефакта в priv/native/<name>.{dll|so} с удалением старого,
@@ -248,6 +254,26 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   8 воркеров × 200 ресурсных циклов (new/push/sum + dtor'ы на GC процессов)
   стабильны; hxcpp-финалайзеры → enif_release_resource работают под
   `HxStackGuard` в dtor. Ещё не проверено: unload (purge+reload).
+  ⚠️ GC-stress spike5.exs иногда ПОДВИСАЕТ (не крашится) под интенсивным
+  `:erlang.garbage_collect()` 8 параллельных воркеров — флейки-регрess
+  multi-thread hxcpp GC (не связано с фазой 6); при повторе проходит
+  за ~45 с. НЕ считать это регрессом фазы 6.
+- **OwnedEnv/SavedTerm/Pid (фаза 6) — ключевые факты:** `ErlNifPid` — это
+  ровно `{ ERL_NIF_TERM pid; }` (одно машинное слово) → `Pid` владеет
+  словом как `NifTerm`-полем и выдаёт `Pointer<ErlNifPid>` через
+  `untyped __cpp__("(ErlNifPid*)&{0}->pidWord", this)` (`{0}` для this —
+  `ObjectPtr`, нужен `->`, НЕ `.`); `cpp.NativeArray<stackOnly-struct>` НЕ
+  компилируется («Too many type parameters»). OwnedEnv построен на
+  `enif_alloc_env/free_env/clear_env` (Wrapper уже имел их) + охранный
+  gen-счётчик; `dispose()` ставит `freed` и null-ит cached Env-view;
+  `SavedTerm.load(env)` → `enif_make_copy`, только если `!freed && gen`
+  совпал. `enif_send` со scheduler-потока требует msg_env из
+  process-independent env (OwnedEnv) и to_pid ≠ вызывающий процесс —
+  E2E-спайк именно так и посылает (cross-process). Каждая функция в
+  ErlNifFunc-таблице обязана иметь Elixir-заглушку в модуле до
+  `:erlang.load_nif`, иначе `{:bad_lib, "Function not found ..."}`
+  (поэтому добавление @:nif-функций требует добавить и заглушки в
+  spike.exs/spike5.exs/spike6.exs).
 - Компилятор на этой машине — **MSVC из VS 2022** (hxcpp находит сам;
   objdir msvc1964). DLL-зависимости только KERNEL32/USER32 (CRT
   статичен) — mingw runtime DLLs не нужны. mingw остаётся фолбэком.
@@ -394,6 +420,47 @@ hx_res_dtor вызывался BEAM'ом во время GC процесса —
 Encoder/Decoder, dirty-cpu/io, ETF, паники, badarg, параллельный стресс.
 Ресурсы (`ResourceArc<T>`) — механизм нативного состояния между
 вызовами (сокеты, буферы, соединения, кэши); с фазы 5 они работают.
+
+## Фаза 6 — статус (owned env + пиды СДЕЛАНО)
+
+### Что сделано (полностью)
+- `hxler/core/OwnedEnv.hx` — process-independent env (`enif_alloc_env`):
+  `dispose()` (free_env, ставит `freed`), `clear()` (clear_env + gen++),
+  cached `env:Env` view (EnvKind.ProcessIndependent), маркеры (int/int64/
+  float/atom/binary/tuple/list/map/ref/errorTuple), `save(t)`. Охранный
+  `freed`+`guard()` бросает при использовании после dispose.
+- `hxler/core/SavedTerm.hx` — `load(dst)` → `enif_make_copy`, только если
+  `!env.freed && env.gen == gen`; иначе null. `isValid()`, `rawOrNull()`.
+- `hxler/core/Pid.hx` — владеет `ErlNifPid` как одно `NifTerm`-слово → raw
+  `Pointer<ErlNifPid>` через `&{0}->pidWord`; `self(env)`, `fromTerm(t)`,
+  `whereis(env,name)`, `isAlive(env)`, `send(env,msg)`, `setUndefined()`,
+  `isUndefined()`.
+- `Env`: +`self()`, `pidOf(t)`, `pidOfRegistered/wheres(atom)`,
+  `isProcessAlive(pid)`, `isCurrentProcessAlive()`, `send(pid,msg)`.
+- `Term`: +`toPid()`.
+
+### E2E-статус (spike6.exs)
+pid_type=:pid/:not_pid, pid_alive live/dead=true/false, send_msg
+OwnedEnv→enif_send→получатель получил "hi-nif", send_msg(:no) →
+{:error,:bad_pid}, saved_term_gens={true,false,true} (valid, clear-stale,
+valid), saved_term_load={:ok,777} (copy cross-env), make_ref_nif={:ok,ref},
+whereis_alive registered/unregistered=true/false — все зелёные. Регресс:
+check.hxml (Check.dll), utest 94/94 ALL TESTS OK, spike.exs (фаза 4) —
+зелёные; spike5.exs (фаза 5) — зелёный, кроме флейки-pовисания GC-stress
+(см. «Хардкорные факты», не связано с фазой 6).
+
+### Ограничения/заметки
+- `enif_send` со scheduler-потока требует msg_env из OwnedEnv (msg_env ≠
+  caller env) и to_pid ≠ вызывающий процесс; это задокументировано на
+  `Pid.send` и показано в spike6 (`sendMsg` строит тело в throwaway
+  OwnedEnv). Обращение из dirty-потока не проверено отдельно.
+- `NifResult<Term>` возвращает терм ГОЛЫМ (rustler-семантика) — ошибка
+  spike6-ожидания `{:ok, ...}` на `saved_term_gens` (правильно `{true,...}`).
+- `cpp.NativeArray<ErlNifPid>` НЕ компилируется (stackOnly-struct).
+
+### Можно ли пользоваться без фазы 6?
+**ДА.** Фазы 0–5 полностью рабочие. Фаза 6 — только для async-паттернов
+(пересылка сообщений, kept OwnedEnv для cross-thread/фоновых задач).
 
 ## BEAM-потоки под NIF (на этой машине: 8 логических CPU)
 

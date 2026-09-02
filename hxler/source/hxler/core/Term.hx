@@ -50,6 +50,10 @@ class Term {
 	public inline function isPid():Bool
 		return Raw.is_pid(env.raw, raw) != 0;
 
+	/** Decodes this pid term into a Pid, or null if not a pid. */
+	public inline function toPid():Null<Pid>
+		return Pid.fromTerm(this);
+
 	public inline function isRef():Bool
 		return Raw.is_ref(env.raw, raw) != 0;
 

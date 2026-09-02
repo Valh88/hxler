@@ -21,6 +21,13 @@ defmodule Hxler.Math do
   def accum_sum(_a), do: :erlang.nif_error(:nif_library_not_loaded)
   def accum_len(_a), do: :erlang.nif_error(:nif_library_not_loaded)
   def is_accum(_t), do: :erlang.nif_error(:nif_library_not_loaded)
+  def pid_type(_t), do: :erlang.nif_error(:nif_library_not_loaded)
+  def pid_alive(_t), do: :erlang.nif_error(:nif_library_not_loaded)
+  def send_msg(_t, _p), do: :erlang.nif_error(:nif_library_not_loaded)
+  def saved_term_gens(), do: :erlang.nif_error(:nif_library_not_loaded)
+  def saved_term_load(), do: :erlang.nif_error(:nif_library_not_loaded)
+  def make_ref_nif(), do: :erlang.nif_error(:nif_library_not_loaded)
+  def whereis_alive(_name), do: :erlang.nif_error(:nif_library_not_loaded)
 end
 
 IO.puts("add(20, 22)            = #{inspect(Hxler.Math.add(20, 22))}  (want 42)")

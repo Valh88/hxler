@@ -15,6 +15,6 @@ package math;
 	<compilerflag value="-I${hxler_erts_include}" />
 	<compilerflag value="-I${hxler_sdk_include}" />
 </files>')
-@:build(hxler.macros.EntryBuilder.build(["math.MathNif"], "Elixir.Hxler.Math", "math.ResourceInit.load"))
+@:build(hxler.macros.EntryBuilder.build(["math.MathNif", "math.Phase6Nif"], "Elixir.Hxler.Math", "math.ResourceInit.load"))
 class Entry {
 }

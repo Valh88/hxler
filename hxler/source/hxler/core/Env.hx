@@ -107,6 +107,40 @@ class Env {
 	public inline function consumeTimeslice(percent:Int):Bool
 		return Wrapper.consumeTimeslice(raw, percent);
 
+	// ---------------------------------------------------------- pids/send --
+
+	/** The calling process's pid (enif_self). */
+	public inline function self():Pid
+		return Pid.self(this);
+
+	/** The pid encoded in `t`, or null if t is not a pid term. */
+	public inline function pidOf(t:Term):Null<Pid>
+		return Pid.fromTerm(t);
+
+	/** Pid registered under atom `name` in this node, or null. */
+	public inline function pidOfRegistered(name:Atom):Null<Pid>
+		return Pid.whereis(this, name.toTerm(this));
+
+	/** Pid registered under atom `name` in this node, or null. */
+	public inline function whereis(name:Atom):Null<Pid>
+		return Pid.whereis(this, name.toTerm(this));
+
+	/** True if process `pid` is alive. */
+	public inline function isProcessAlive(pid:Pid):Bool
+		return pid.isAlive(this);
+
+	/** True if the calling process itself is alive. */
+	public inline function isCurrentProcessAlive():Bool
+		return Wrapper.isCurrentProcessAlive(raw);
+
+	/**
+	 * Sends msg to pid. See Pid.send for the scheduler-thread rules (msg
+	 * must live in a process-independent env for cross-process delivery).
+	 * Returns false if the delivery did not happen.
+	 */
+	public inline function send(pid:Pid, msg:Term):Bool
+		return pid.send(this, msg);
+
 	public inline function binaryToTerm(b:haxe.io.Bytes, opts:Int = 0):Null<Term> {
 		var data = b.length == 0 ? null : hxler.nif.Mem.bytesBase(b);
 		var out:NifTerm = 0;
