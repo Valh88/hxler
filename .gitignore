@@ -28,3 +28,4 @@ hxler-*.tar
 native/math/bin/cpp/
 hxler/bin/
 native/math/erl_crash.dump
+example/priv/native/

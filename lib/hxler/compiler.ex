@@ -71,7 +71,9 @@ defmodule Hxler.Compiler do
     nif_dir = Path.join(native_dir, nif)
 
     # haxe resolves relative -cp/--cpp in an .hxml against the current working
-    # directory (not the hxml's location), so run from inside the nif dir.
+    # directory (not the hxml's location), so run from inside the nif dir. The
+    # SDK classpath is injected explicitly so any consumer layout works (the
+    # build.hxml only needs `-cp source` for the consumer's own code).
     {_, 0} =
       System.cmd(
         "haxe",
@@ -80,7 +82,9 @@ defmodule Hxler.Compiler do
           "-D",
           "hxler_erts_include=#{erts}",
           "-D",
-          "hxler_sdk_include=#{sdk_include}"
+          "hxler_sdk_include=#{sdk_include}",
+          "-cp",
+          sdk_include
         ],
         cd: nif_dir,
         stderr_to_stdout: true
@@ -121,15 +125,16 @@ defmodule Hxler.Compiler do
 
   # The Haxe SDK ships as part of the hxler package so a consumer needs no
   # separate haxelib install. Locate it in the package dir: either the
-  # project itself (development: <root>/hxler/source) or the dependency
-  # checkout (consumer: deps/hxler/hxler/source).
+  # project itself (development: <root>/hxler/source), the dependency
+  # checkout (consumer hex dep: deps/hxler/hxler/source), or a local path
+  # dependency (consumer `path:` dep: <path>/hxler/source).
   defp sdk_include do
     cwd = File.cwd!()
-    dep = Mix.Project.deps_paths()[:hxler] |> then(&if &1, do: Path.join(cwd, &1))
 
     candidates =
-      [cwd, dep]
+      [cwd, dep_root(cwd)]
       |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
       |> Enum.map(&Path.join([&1, "hxler", "source"]))
 
     case Enum.find(candidates, &File.dir?/1) do
@@ -142,6 +147,32 @@ defmodule Hxler.Compiler do
 
       path ->
         path
+    end
+  end
+
+  # Resolve the directory that contains the hxler package: the configured
+  # deps checkout (hex: deps/hxler), or the `path:` of a local dependency.
+  defp dep_root(cwd) do
+    case Mix.Project.config()[:deps] do
+      deps when is_list(deps) ->
+        deps
+        |> Enum.find(&match?({:hxler, _}, &1))
+        |> case do
+          {:hxler, opts} when is_list(opts) ->
+            case Keyword.get(opts, :path) do
+              nil -> Path.join([cwd, "deps", "hxler"])
+              path -> Path.expand(path, cwd)
+            end
+
+          {:hxler, _} ->
+            Path.join([cwd, "deps", "hxler"])
+
+          _ ->
+            nil
+        end
+
+      _ ->
+        nil
     end
   end
 

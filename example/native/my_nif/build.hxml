@@ -1,0 +1,6 @@
+-cp source
+-main my_nif.Main
+--cpp bin/cpp
+-D HXCPP_M64
+-D dll_link
+-D no_shared_libs
