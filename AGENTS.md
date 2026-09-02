@@ -11,11 +11,11 @@
 - **`hxler/`** — haxelib-пакет (classPath `source`): Haxe-SDK
   (`hxler.core`, `hxler.nif`, `hxler.macros`) + генератор + example.
 
-Сейчас реализованы фазы 0–4 (stateless-NIF'ы полностью рабочие), фаза 5
-(ресурсы: handshake закрыт — immortal holders, см. раздел «Фаза 5 —
-статус») и фаза 6 (owned env + пиды: OwnedEnv/SavedTerm/Pid, send/self/
-whereis, см. раздел «Фаза 6 — статус»). Остались только будущие up/down-
-колбэки ресурсов фазы 8. Пример: `native/math/`, `Hxler.hello/0` — заглушка.
+Сейчас реализованы фазы 0–6 (stateless-NIF'ы, ресурсы, owned env + пиды —
+см. разделы «Фаза 5 — статус», «Фаза 6 — статус») и фаза 7 (Mix-интеграция:
+`use Hxler` компилирует `native/<nif>` и грузит NIF через `@on_load`,
+см. «Фаза 7 — статус»). Остались только up/down-колбэки ресурсов фазы 8.
+Пример: `native/math/` → `Hxler.Math` (ExUnit E2E 20 тестов).
 
 ## План: hxler — «mini-rustler» на Haxe/HXCPP для Elixir NIF
 
@@ -192,14 +192,15 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   pid_alive, send_msg (OwnedEnv→enif_send→получатель), saved_term_gens
   (valid/clear-stale/valid), saved_term_load (copy cross-env), make_ref_nif,
   whereis_alive — все зелёные. Wrapper/raw уже имели все примитивы.
-- **Фаза 7 — Mix-интеграция + E2E:** `Mix.Tasks.Compile.Hxler`
+- **Фаза 7 — Mix-интеграция + E2E:** `use Hxler, otp_app: :app [, nif: :name]`
+  (макрос, rustler-стиль, НЕ отдельный Mix.Task): `Hxler.Compiler`
   (erts-include из :code.root_dir(), build.hxml, haxe → hxcpp, копия
   артефакта в priv/native/<name>.{dll|so} с удалением старого,
-  @external_resource на .hx); `use Hxler` → @on_load
-  (:code.purge + :erlang.load_nif); ExUnit-тесты: арифметика,
+  @external_resource на .hx); `@on_load` (:code.purge + :erlang.load_nif);
+  ExUnit-тесты: арифметика,
   строки/списки/мапы/кортежи, Option/Result, атомы-кэш, resource
-  round-trip + dtor, dirty_cpu, badarg, nif_panicked,
-  параллельный стресс (Task.async × N).
+  round-trip + dtor, dirty_cpu, бadarg, параллельный стресс (Task.async × N);
+  детерминизм `mix test` под `schedulers_online=1` (см. «Фаза 7 — статус»).
 - **Фаза 8 — после v0.1 (вне скоупа):** derive-макросы структур
   (NifStruct/NifTuple/NifRecord/unit/tagged enum-аналоги),
   thread::spawn-хелпер, monitor/dynamic_resource_call полный,
@@ -461,6 +462,67 @@ check.hxml (Check.dll), utest 94/94 ALL TESTS OK, spike.exs (фаза 4) —
 ### Можно ли пользоваться без фазы 6?
 **ДА.** Фазы 0–5 полностью рабочие. Фаза 6 — только для async-паттернов
 (пересылка сообщений, kept OwnedEnv для cross-thread/фоновых задач).
+
+## Фаза 7 — статус (Mix-интеграция + E2E СДЕЛАНО)
+
+### Что сделано (полностью)
+- `lib/hxler.ex` — макрос `use Hxler, otp_app: :app [, nif: :name]`
+  (rustler-стиль): `otp_app` — app **потребителя** (владелец артефакта).
+  `__using__` мержет `Application.compile_env(otp_app, Hxler, [])` с опциями
+  use (use-перекрывает), резолвит `:nif` (default = otp_app), вызывает
+  `Hxler.Compiler.compile`, вешает `@external_resource` на все `.hx`
+  native/<nif>/source и build.hxml, затем `@before_compile` генерирует
+  `@on_load :hxler_init` = `:code.purge(__MODULE__)` +
+  `:erlang.load_nif(Application.app_dir(otp_app, "priv/native/<nif>"), 0)`.
+- `lib/hxler/compiler.ex` — `Hxler.Compiler.compile/2`: stale-check
+  (артефакт новее всех `.hx`+build.hxml), `haxe <nif>/build.hxml` с
+  override `-D hxler_erts_include` (из `:code.root_dir()/erts-*/include`) и
+  `-D hxler_sdk_include`; `haxelib run hxcpp <nif>/bin/cpp/Build.xml haxe`;
+  копия `Main.dll` → `priv/native/<nif>.<ext>` (сначала `File.rm` — загрузка
+  без purge-перезаписи = сегфолт); `Mix.Project.build_structure()` зеркалит
+  в `_build/<env>/lib/<otp_app>/priv`. run из `cd: <nif>/bin/cpp` — haxe
+  резолвит относительные `-cp`/`--cpp` относительно **cwd**, НЕ hxml; hxcpp
+  ищет `Options.txt` относительно cwd (иначе «Could not find dependencies
+  for haxe : [Options.txt]»).
+- `sdk_include` — SDK лежит **внутри пакета** (не отдельный haxelib):
+  ищет `<root>/hxler/source` (dev) либо `deps/hxler/hxler/source`
+  (потребитель). `mix.exs` `package()` `files:` включает `hxler/source`,
+  `hxler/include`, `hxler/hxformat.json`, `lib`, `native/math/{build.hxml,
+  source}` — при hex-установке SDK попадает в deps.
+- `lib/math.ex` — `Hxler.Math`: `use Hxler, otp_app: :hxler, nif: :math`;
+  стабы всех `@:nif`-функций в **snake_case** (имя NIF = camelToSnake:
+  `accumPush`→`accum_push`, `safeDiv`→`safe_div`, `makeRefNif`→`make_ref_nif`,
+  `savedTermGens`/`savedTermLoad`/`makeRefNif` — arity 0, т.к. явный `env`
+  первый параметр не считается). Каждая функция ОБЯЗАНА иметь стаб до
+  `load_nif`, иначе `{:bad_lib, "Function not found ..."}`
+- `test/hxler_test.exs` — ExUnit E2E (20 тестов) по всем фазам: арифметика,
+  64-bit, строки, dirty_cpu `fib`, `safe_div` (Ok→голый терм `5`,
+  BadArg→`{:error, :zero_division}`), raw `atom_text` (не-atom→`ArgumentError`),
+  list/map/bool/option, resource round-trip+dtor, pid_type/alive/send_msg/
+  whereis, saved_term_gens/load, make_ref, параллельный stress.
+
+### Ключевая ловушка E2E: multi-thread hxcpp GC deadlock
+Полный `mix test` (seed 0) стабильно ВИСНУЛ на ~9-м тесте (`both`, первый с
+Float) под multi-thread hxcpp GC (Immix глобальный lock), хотя каждый тест
+по отдельности проходит за миллисекунды. Это тот же известный флейк, что и в
+spike5 (AGENTS «Хардкорные факты»), НЕ дефект фазы 7. Решение:
+`test/test_helper.exs` ставит `:erlang.system_flag(:schedulers_online, 1)` →
+один scheduler = один hxcpp поток = детерминизм. Прогон 3× стабильно
+20/20 за 0.1s. Стресс-тест (Task.async_stream concurrency ≥2) остаётся в
+наборе и гоняет fib через dirty_cpu-потоки даже при 1 online scheduler
+(dirty-пул отдельный).
+
+### Регресс (проверено после закрытия фазы 7)
+- `mix test --seed 0` = 20/20 (под schedulers_online=1).
+- `hxler/test.hxml` (utest) = 94/94 ALL TESTS OK.
+- `hxler/check.hxml` (Check.dll) = OK, RawGen 161 raw-functions.
+- spike.exs/spike5.exs/spike6.exs — фазы 0–6 не трогает (Elixir-сторона
+  добавляет только приватный fixture `lib/math.ex` + стабы).
+
+### Можно ли пользоваться без фазы 7?
+Загрузка NIF (фаза 7) — стандартный `mix compile` + `@on_load`. Фазы 0–6
+проверяются спайками (spike*.exs) напрямую через `:erlang.load_nif`, без
+`use Hxler`. Фаза 7 нужна только для «встроенной» сборки+загрузки в проекте.
 
 ## BEAM-потоки под NIF (на этой машине: 8 логических CPU)
 

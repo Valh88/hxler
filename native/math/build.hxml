@@ -1,5 +1,5 @@
 -cp source
--cp D:/projects/elixir/hxler/hxler/source
+-cp ../../hxler/source
 -main math.Main
 --cpp bin/cpp
 -D HXCPP_M64
