@@ -152,5 +152,11 @@ class Decoders {
 		}
 		return Error(BadArg);
 	}
+
+	/** Resource term -> ResourceArc<T>; BadArg on a foreign/absent type. */
+	public static function resource<T:hxler.core.Resource>(t:Term, cls:Class<T>):NifResult<hxler.core.ResourceArc<T>> {
+		var arc = t.tryGetResource(cls);
+		return arc == null ? Error(BadArg) : Ok(arc);
+	}
 }
 

@@ -5,6 +5,7 @@ import hxler.nif.raw.Raw;
 import hxler.nif.raw.ErlNifEnv;
 import hxler.nif.raw.NifTerm;
 import hxler.nif.raw.NifCharEncoding;
+import hxler.nif.raw.NifResourceFlags;
 
 /**
  * Wrapper over ErlNifEnv* (rustler Env analog). Created by the generated
@@ -15,7 +16,9 @@ import hxler.nif.raw.NifCharEncoding;
  * were created in (cross-env transfer goes through Term.copyTo).
  */
 @:keep
-@:headerCode('#include "erl_nif.h"')
+@:headerCode('#include "erl_nif.h"
+// defined by the EntryBuilder glue (real NIF) or the Check stub (check build)
+extern "C" ErlNifResourceTypeInit* hxler_resource_type_init();')
 class Env {
 	public var raw(default, null):ErlNifEnv;
 	public var kind(default, null):EnvKind;
@@ -110,5 +113,46 @@ class Env {
 		var consumed = Wrapper.binaryToTerm(raw, data, b.length, opts, cpp.Pointer.addressOf(out));
 		return consumed > 0 ? new Term(this, out) : null;
 	}
+
+	// ---------------------------------------------------------- resources --
+
+	/**
+	 * Registers a resource type for the class T (phase 5). Valid ONLY in
+	 * the load callback env (EnvKind.Init): BEAM rejects it elsewhere and
+	 * this throws. The generated glue owns the C dtor/down trampolines;
+	 * here we only build the ErlNifResourceTypeInit with the member count
+	 * (2.17 layout: dtor/stop/down + members + dyncall) and pass it
+	 * through enif_init_resource_type.
+	 *
+	 * implementsDtor  -> dtor runs the Haxe destructor callback
+	 * implementsDown  -> down callback (monitor on process death)
+	 */
+	public function registerResource<T:hxler.core.Resource>(cls:Class<T>):Bool {
+		if (kind != EnvKind.Init) {
+			throw "Env.registerResource: only valid in the load callback (kind=" + kind + ")";
+		}
+		var name = ResourceCache.nameOf(cls);
+		// dtor/down trampolines live in the generated glue (@:cppFileCode of
+		// the Entry class). C function pointers cannot be expressed as Haxe
+		// values (MSVC forbids void* -> fn-ptr), so the whole init-struct
+		// fill + enif_init_resource_type call is one untyped block - same
+		// rule as RawGen's enum wrappers.
+		var tried:Int = 0;
+		var namePtr = hxler.nif.Mem.charPointer(name);
+		var type:hxler.nif.raw.ErlNifResourceType = untyped __cpp__("enif_init_resource_type({0}.ptr, {1}.ptr, hxler_resource_type_init(), (ErlNifResourceFlags){2}, (ErlNifResourceFlags*)&{3})", raw, namePtr, NifResourceFlags.CREATE, tried);
+		if (type == null) {
+			return false;
+		}
+		ResourceCache.register(name, type);
+		return true;
+	}
 }
+
+/**
+ * The C helper hxler_resource_type_init() that fills ErlNifResourceTypeInit
+ * with the glue trampolines is defined by the EntryBuilder glue
+ * (@:cppFileCode) or the Check stub; its extern "C" declaration travels
+ * with Env.h headerCode above.
+ */
+
 

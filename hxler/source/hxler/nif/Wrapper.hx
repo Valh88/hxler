@@ -4,6 +4,7 @@ import hxler.nif.raw.Raw;
 import hxler.nif.raw.NifTerm;
 import hxler.nif.raw.ErlNifEnv;
 import hxler.nif.raw.ErlNifResourceType;
+import hxler.nif.raw.ErlNifResourceTypeInit;
 import hxler.nif.raw.ErlNifPid;
 import hxler.nif.raw.ErlNifBinary;
 import hxler.nif.raw.NifCharEncoding;
@@ -208,6 +209,47 @@ class Wrapper {
 		}
 		return obj;
 	}
+
+	/**
+	 * enif_init_resource_type (NIF 2.16+, our minimum is 2.17). `init` is a
+	 * stack struct; BEAM does not retain it. Name goes through charBuf.
+	 * The ErlNifResourceFlags* out-param cannot be expressed in Haxe (C
+	 * enum-pointer, no hxcpp conversion) - hence the one-line untyped with
+	 * explicit casts, same rule as RawGen's enum wrappers.
+	 */
+	public static function initResourceType(env:ErlNifEnv, name:String, init:cpp.Pointer<ErlNifResourceTypeInit>,
+			flags:Int):ErlNifResourceType {
+		var nameBuf = charBuf(name);
+		var tried:Int = 0;
+		var type:ErlNifResourceType = untyped __cpp__("enif_init_resource_type({0}.ptr, {1}.ptr, {2}.ptr, (ErlNifResourceFlags){3}, (ErlNifResourceFlags*)&{4})", env, nameBuf, init, flags, tried);
+		return type;
+	}
+
+	public static function initResourceTypeTried(env:ErlNifEnv, name:String, init:cpp.Pointer<ErlNifResourceTypeInit>,
+			flags:Int, tried:Pointer<Int>):ErlNifResourceType {
+		var nameBuf = charBuf(name);
+		var type:ErlNifResourceType = untyped __cpp__("enif_init_resource_type({0}.ptr, {1}.ptr, {2}.ptr, (ErlNifResourceFlags){3}, (ErlNifResourceFlags*){4}.ptr)", env, nameBuf, init, flags, tried);
+		return type;
+	}
+
+	public static inline function allocResource(type:ErlNifResourceType, size:Int):cpp.Star<cpp.Void>
+		return Raw.alloc_resource(type, size);
+
+	public static inline function releaseResource(obj:cpp.Star<cpp.Void>):Void
+		Raw.release_resource(obj);
+
+	public static inline function keepResource(obj:cpp.Star<cpp.Void>):Void
+		Raw.keep_resource(obj);
+
+	public static inline function makeResource(env:ErlNifEnv, obj:cpp.Star<cpp.Void>):NifTerm
+		return Raw.make_resource(env, obj);
+
+	public static inline function makeResourceBinary(env:ErlNifEnv, obj:cpp.Star<cpp.Void>, data:Pointer<cpp.UInt8>,
+			size:Int):NifTerm
+		return Raw.make_resource_binary(env, obj, cast data.raw, size);
+
+	public static inline function sizeofResource(obj:cpp.Star<cpp.Void>):Int
+		return Raw.sizeof_resource(obj);
 
 	// ------------------------------------------------------------ pids/refs --
 

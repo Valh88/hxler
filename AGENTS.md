@@ -11,8 +11,10 @@
 - **`hxler/`** — haxelib-пакет (classPath `source`): Haxe-SDK
   (`hxler.core`, `hxler.nif`, `hxler.macros`) + генератор + example.
 
-Сейчас реализован только mix-скелет (`Hxler.hello/0` — заглушка);
-Haxe-SDK пуст (`hxler/source/hxler/`).
+Сейчас реализованы фазы 0–4 (stateless-NIF'ы полностью рабочие) и
+частично фаза 5 (ресурсы — каркас есть, handshake-баг открыт, см.
+раздел «Фаза 5 — статус»). Пример: `native/math/`, `Hxler.hello/0` —
+заглушка.
 
 ## План: hxler — «mini-rustler» на Haxe/HXCPP для Elixir NIF
 
@@ -138,12 +140,43 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   HxStackGuard, ErlNifFunc-таблица, ERL_NIF_INIT. E2E: таблица с
   snake_case-именами, dirty_cpu-флаг из `schedule=`, {:error,:reason} из
   NifError.Term, голый терм из NifResult<Term> (rustler-семантика).
-- **Фаза 5 — Ресурсы:** интерфейс `Resource` (dtor/down опционально),
-  `ResourceArc<T>` (enif_keep/release через GC-финалайзер
-  `_hx_add_finalizable`), glue-frame с GCAddRoot, регистрация типов
-  через `enif_init_resource_type` (2.16+) в load,
-  `make_resource_binary`, encode/decode ресурса,
-  `Term.try_get_resource`.
+- **Фаза 5 — Ресурсы (ЧАСТИЧНО, каркас есть; handshake-баг открыт):**
+  Реализовано:
+  - `hxler/core/Resource.hx` — интерфейс-маркер (в 5a без dtor-хуков).
+  - `hxler/core/ResourceArc.hx` — хэндл: BEAM-блок =
+    `hxler::HxResourceFrame{void* root, int size, ::String kind}` +
+    user payload; `make/toTerm/makeResourceBinary/get/keep/payload`,
+    `tryGet/tryGetRaw/decode/encode` (kind-проверка по class-path строке),
+    release-once; конструктор БЕЗ аргументов + `@:unreflective` +
+    `init(raw,obj)` — Dynamic-фабрика hxcpp не умеет void*-аргументы
+    (C2664 в __Create, правило из фазы 2).
+  - `hxler/core/ResourceCache.hx` — Map<"math.Accum", ErlNifResourceType>
+    (mutex-guarded) + `trackRelease` (финалайзер `_hx_set_finalizer` →
+    `enif_release_resource`, once-флаг в arc).
+  - `hxler/nif/raw/ErlNifResourceFrame.hx` + `hxler/core/HxResourceFrame.h`
+    (C++ struct, шипится с пакетом; include-путь задаётся define'ом
+    `hxler_sdk_include=<package>/source` в hxml → `${hxler_sdk_include}`
+    в buildXml).
+  - `Wrapper`: `initResourceType` (untyped: enum-pointer
+    `ErlNifResourceFlags*` не выражается в hxcpp), `alloc/keep/release/
+    makeResource/makeResourceBinary/sizeofResource`.
+  - `Env.registerResource(cls)`: только в EnvKind.Init; собирает
+    ErlNifResourceTypeInit через glue-функцию `hxler_resource_type_init()`
+    (C fn-указатели нельзя присвоить из Haxe на MSVC), members=3.
+  - `Term.tryGetResource(cls)`, `Decoders.resource`, `Encoders.resource`;
+    `NifBuilder` поддерживает `hxler.core.ResourceArc<T>` в сигнатурах
+    `@:nif` (короткое имя T резолвится в пакет владельца).
+  - `EntryBuilder.build(..., loadFn)` — Haxe load-колбэк (регистрация
+    типов), glue: `hx_res_dtor` (GCRemoveRoot + root=0), `hx_res_down`
+    (noop до фазы 6/8), `hxler_resource_type_init()`.
+  E2E-статус: `is_accum`=true, decode/round-trip ВНУТРИ одного вызова
+  работает (`diag_roundtrip`=42), НО изменения объекта НЕ переживают
+  выход из NIF-вызова (count/items = 0 при чтении следующим вызовом) —
+  см. «Фаза 5 — проблема» ниже.
+  **Можно ли пользоваться без фазы 5: ДА.** Фазы 0–4 самодостаточны для
+  stateless-NIF (любые термы, dirty, ETF, паники). Ресурсы нужны только
+  для нативного состояния между вызовами (сокеты, буферы, соединения);
+  обходной путь — сериализация/ETF или хранение в процессе Elixir.
 - **Фаза 6 — owned env + пиды:** `OwnedEnv` (alloc_env/free_env/clear +
   gen-счётчик), `SavedTerm` (raw term + gen; load(env) с проверкой
   env/gen → enif_make_copy), `env.pid()` (enif_self), `send` (enif_send

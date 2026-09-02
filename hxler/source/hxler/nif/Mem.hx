@@ -32,4 +32,14 @@ class Mem {
 			untyped __cpp__("memcpy({0} + {1}, {2}->b->GetBase(), {3})", dst, dstOffset, src, count);
 		}
 	}
+
+	/** ASCII/Latin-1 string -> malloc-free null-terminated char pointer (caller keeps the buffer). */
+	public inline static function charPointer(s:String):Pointer<cpp.Char> {
+		var buf = new Array<cpp.Char>();
+		for (i in 0...s.length) {
+			buf.push(s.charCodeAt(i));
+		}
+		buf.push(0);
+		return cpp.Pointer.ofArray(buf);
+	}
 }

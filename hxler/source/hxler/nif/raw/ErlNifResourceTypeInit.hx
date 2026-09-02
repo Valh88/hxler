@@ -15,3 +15,14 @@ extern class ErlNifResourceTypeInit {
 	@:native("ErlNifResourceTypeInit")
 	static function make():ErlNifResourceTypeInit;
 }
+
+/** C fn-pointer typedefs from erl_nif.h, so assignments type-check on MSVC. */
+@:structAccess
+@:include("erl_nif.h")
+@:native("ErlNifResourceDtor")
+extern class ErlNifResourceDtor {}
+
+@:structAccess
+@:include("erl_nif.h")
+@:native("ErlNifResourceDown")
+extern class ErlNifResourceDown {}

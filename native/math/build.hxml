@@ -6,3 +6,4 @@
 -D dll_link
 -D no_shared_libs
 -D hxler_erts_include=C:/Users/simpl/scoop/apps/erlang/27.3.1/erts-15.2.4/include
+-D hxler_sdk_include=D:/projects/elixir/hxler/hxler/source

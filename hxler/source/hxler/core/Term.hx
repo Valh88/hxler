@@ -130,6 +130,21 @@ class Term {
 		return Wrapper.getTuple(env.raw, raw);
 	}
 
+	// -------------------------------------------------------- resources --
+
+	/**
+	 * Wraps the resource object of this term as a ResourceArc<T> (rustler
+	 * term.try_get_resource analog), or null if the term is not a resource
+	 * of type T. Increments the BEAM refcount.
+	 */
+	public function tryGetResource<T:Resource>(cls:Class<T>):Null<ResourceArc<T>> {
+		var type = ResourceCache.lookup(cls);
+		if (type == null) {
+			return null;
+		}
+		return ResourceArc.tryGetRaw(env, raw, type, ResourceCache.nameOf(cls));
+	}
+
 	// ------------------------------------------------------ cross-env/ETF --
 
 	/** Copies this term into another env (enif_make_copy). */

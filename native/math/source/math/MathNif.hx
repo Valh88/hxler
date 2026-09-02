@@ -95,5 +95,32 @@ class MathNif {
 	public static function optOr42(v:Null<Int>):Int {
 		return v == null ? 42 : v;
 	}
+
+	// ---- phase 5: resources ----
+
+	@:nif
+	public static function accumNew():hxler.core.ResourceArc<Accum> {
+		return hxler.core.ResourceArc.make(new Accum());
+	}
+
+	@:nif
+	public static function accumPush(arc:hxler.core.ResourceArc<Accum>, v:Int):Void {
+		arc.get().push(v);
+	}
+
+	@:nif
+	public static function accumSum(arc:hxler.core.ResourceArc<Accum>):Int {
+		return arc.get().sum();
+	}
+
+	@:nif
+	public static function accumLen(arc:hxler.core.ResourceArc<Accum>):Int {
+		return arc.get().items.length;
+	}
+
+	@:nif
+	public static function isAccum(t:hxler.core.Term):Bool {
+		return t.tryGetResource(Accum) != null;
+	}
 }
 

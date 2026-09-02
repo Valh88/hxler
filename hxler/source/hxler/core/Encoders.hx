@@ -68,6 +68,10 @@ class Encoders {
 	public static function tuple2(env:Env, a:Term, b:Term):Term
 		return env.tupleFromArray([a, b]);
 
+	/** ResourceArc -> opaque resource term. */
+	public static inline function resource<T:hxler.core.Resource>(env:Env, arc:hxler.core.ResourceArc<T>):Term
+		return arc.toTerm(env);
+
 	public static function tuple3(env:Env, a:Term, b:Term, c:Term):Term
 		return env.tupleFromArray([a, b, c]);
 

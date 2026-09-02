@@ -256,7 +256,7 @@ class NifBuilder {
 		for (i in 0...d.paramTypes.length) {
 			var t = d.paramTypes[i];
 			buf.add('\t\tvar _a$i:Null<$t> = null;\n');
-			buf.add('\t\tswitch (${decExpr(t, 'new hxler.core.Term(env, argv[$i])')}) {\n');
+			buf.add('\t\tswitch (${decExpr(t, 'new hxler.core.Term(env, argv[$i])', fn)}) {\n');
 			buf.add('\t\t\tcase Ok(v): _a$i = v;\n');
 			buf.add('\t\t\tcase Error(e): return hxler.core.NifReturn.errorTerm(env, e);\n');
 			buf.add('\t\t}\n');
@@ -269,7 +269,7 @@ class NifBuilder {
 			callArgs.push('_a$i');
 		}
 		var call = '$fn.${d.func}(${callArgs.join(", ")})';
-		buf.add('\t\treturn ${retExpr(d.retType, call, "env")};\n');
+		buf.add('\t\treturn ${retExpr(d.retType, call, "env", fn)};\n');
 		buf.add('\t} catch (e:Dynamic) {\n');
 		buf.add('\t\treturn hxler.core.NifReturn.errorTerm(env, hxler.core.NifError.RaiseAtom("nif_panicked"));\n');
 		buf.add('\t}\n');
@@ -292,8 +292,16 @@ class NifBuilder {
 		return field;
 	}
 
-	/** Expression decoding a Term (expr string) into the Haxe type. */
-	public static function decExpr(type:String, termExpr:String):String {
+	/**
+	 * Expression decoding a Term (expr string) into the Haxe type.
+	 * `ownerCls` = qualified path of the NIF class owning the signature,
+	 * used to resolve same-package resource type names.
+	 */
+	public static function decExpr(type:String, termExpr:String, ownerCls:String = null):String {
+		var arc = resourceArcParts(type, ownerCls);
+		if (arc != null) {
+			return 'hxler.core.Decoders.resource($termExpr, ${arc})';
+		}
 		return switch (type) {
 			case "Int": 'hxler.core.Decoders.int($termExpr)';
 			case "Float": 'hxler.core.Decoders.float($termExpr)';
@@ -306,16 +314,16 @@ class NifBuilder {
 			default:
 				if (StringTools.startsWith(type, "Null<")) {
 					var inner = type.substring(5, type.length - 1);
-					'hxler.core.Decoders.option($termExpr, (t) -> ${decExpr(inner, "t")})';
+					'hxler.core.Decoders.option($termExpr, (t) -> ${decExpr(inner, "t", ownerCls)})';
 				} else if (StringTools.startsWith(type, "Array<")) {
 					var inner = type.substring(6, type.length - 1);
-					'hxler.core.Decoders.list($termExpr, (t) -> ${decExpr(inner, "t")})';
+					'hxler.core.Decoders.list($termExpr, (t) -> ${decExpr(inner, "t", ownerCls)})';
 				} else if (StringTools.startsWith(type, "Map<")) {
 					var inner = type.substring(4, type.length - 1);
 					var comma = inner.indexOf(",");
 					var k = inner.substring(0, comma);
 					var v = inner.substring(comma + 1);
-					'(function(t) { return switch (hxler.core.Decoders.map(t, (t) -> ${decExpr(k, "t")}, (t) -> ${decExpr(v, "t")})) { case Ok(pairs): { var m = new Map<$k, $v>(); for (p in pairs) m.set(p.k, p.v); Ok(m); } case Error(e): Error(e); }; })($termExpr)';
+					'(function(t) { return switch (hxler.core.Decoders.map(t, (t) -> ${decExpr(k, "t", ownerCls)}, (t) -> ${decExpr(v, "t", ownerCls)})) { case Ok(pairs): { var m = new Map<$k, $v>(); for (p in pairs) m.set(p.k, p.v); Ok(m); } case Error(e): Error(e); }; })($termExpr)';
 				} else if (hasStatic(type, "hxDecode")) {
 					'$type.hxDecode($termExpr)';
 				} else {
@@ -325,7 +333,7 @@ class NifBuilder {
 	}
 
 	/** Expression encoding `valueExpr` (of `type`) into raw NifTerm. */
-	public static function retExpr(type:String, valueExpr:String, envVar:String):String {
+	public static function retExpr(type:String, valueExpr:String, envVar:String, ownerCls:String = null):String {
 		if (type == "hxler.nif.raw.NifTerm") {
 			return '($valueExpr)';
 		}
@@ -334,13 +342,17 @@ class NifBuilder {
 		}
 		if (StringTools.startsWith(type, "hxler.core.NifResult<")) {
 			var inner = type.substring("hxler.core.NifResult<".length, type.length - 1);
-			return 'switch ($valueExpr) { case Ok(v): ${retExpr(inner, "v", envVar)}; case Error(e): hxler.core.NifReturn.errorTerm($envVar, e); }';
+			return 'switch ($valueExpr) { case Ok(v): ${retExpr(inner, "v", envVar, ownerCls)}; case Error(e): hxler.core.NifReturn.errorTerm($envVar, e); }';
 		}
-		return '${encTermExpr(type, valueExpr, envVar)}.raw';
+		return '${encTermExpr(type, valueExpr, envVar, ownerCls)}.raw';
 	}
 
 	/** Expression encoding `valueExpr` into a hxler.core.Term (NOT raw). */
-	public static function encTermExpr(type:String, valueExpr:String, envVar:String):String {
+	public static function encTermExpr(type:String, valueExpr:String, envVar:String, ownerCls:String = null):String {
+		var arc = resourceArcParts(type, ownerCls);
+		if (arc != null) {
+			return 'hxler.core.Encoders.resource($envVar, $valueExpr)';
+		}
 		return switch (type) {
 			case "Int": 'hxler.core.Encoders.int($envVar, $valueExpr)';
 			case "Float": 'hxler.core.Encoders.float($envVar, $valueExpr)';
@@ -353,22 +365,50 @@ class NifBuilder {
 			default:
 				if (StringTools.startsWith(type, "Null<")) {
 					var inner = type.substring(5, type.length - 1);
-					'($valueExpr) == null ? hxler.core.AtomCache.intern("nil").toTerm($envVar) : ${encTermExpr(inner, valueExpr, envVar)}';
+					'($valueExpr) == null ? hxler.core.AtomCache.intern("nil").toTerm($envVar) : ${encTermExpr(inner, valueExpr, envVar, ownerCls)}';
 				} else if (StringTools.startsWith(type, "Array<")) {
 					var inner = type.substring(6, type.length - 1);
-					'hxler.core.Encoders.list($envVar, $valueExpr, (x) -> ${encTermExpr(inner, "x", envVar)})';
+					'hxler.core.Encoders.list($envVar, $valueExpr, (x) -> ${encTermExpr(inner, "x", envVar, ownerCls)})';
 				} else if (StringTools.startsWith(type, "Map<")) {
 					var inner = type.substring(4, type.length - 1);
 					var comma = inner.indexOf(",");
 					var k = inner.substring(0, comma);
 					var v = inner.substring(comma + 1);
-					'hxler.core.Encoders.map($envVar, $valueExpr, (k) -> ${encTermExpr(k, "k", envVar)}, (vv) -> ${encTermExpr(v, "vv", envVar)})';
+					'hxler.core.Encoders.map($envVar, $valueExpr, (k) -> ${encTermExpr(k, "k", envVar, ownerCls)}, (vv) -> ${encTermExpr(v, "vv", envVar, ownerCls)})';
 				} else if (hasStatic(type, "hxEncode")) {
 					'$type.hxEncode($envVar, $valueExpr)';
 				} else {
 					Context.fatalError('NifBuilder: unsupported return type "$type"', Context.currentPos());
 				}
 		}
+	}
+
+	/**
+	 * ResourceArc<T> support: for `hxler.core.ResourceArc<Accum>` returns
+	 * the qualified class expression for T (resolving same-package names
+	 * against the owner class), or null if `type` is not an ResourceArc.
+	 */
+	static function resourceArcParts(type:String, ownerCls:String):Null<String> {
+		var prefix = "hxler.core.ResourceArc<";
+		var short = "ResourceArc<";
+		var start = -1;
+		if (StringTools.startsWith(type, prefix)) {
+			start = prefix.length;
+		} else if (ownerCls != null && StringTools.startsWith(type, short)) {
+			start = short.length;
+		}
+		if (start < 0 || !StringTools.endsWith(type, ">")) {
+			return null;
+		}
+		var inner = type.substring(start, type.length - 1);
+		if (ownerCls != null && inner.indexOf(".") < 0) {
+			// same package as the owner class
+			var dot = ownerCls.lastIndexOf(".");
+			if (dot > 0) {
+				inner = ownerCls.substring(0, dot + 1) + inner;
+			}
+		}
+		return inner;
 	}
 
 	/** True if the module type has a public static `name` function. */

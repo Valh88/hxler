@@ -36,13 +36,25 @@ import cpp.Pointer;
 @:headerCode('#include "erl_nif.h"')
 // Standalone check build has no ERL_NIF_INIT (that comes from the glue in
 // phase 4), so define the Windows callback table here; a real NIF gets it
-// from ERL_NIF_INIT_GLOB.
-@:cppFileCode('TWinDynNifCallbacks WinDynNifCallbacks;')
+// from ERL_NIF_INIT_GLOB. The resource-init helper comes from the EntryBuilder
+// glue in a real NIF; a stub keeps this build linkable.
+@:cppFileCode('TWinDynNifCallbacks WinDynNifCallbacks;
+extern "C" ErlNifResourceTypeInit* hxler_resource_type_init() {
+	static ErlNifResourceTypeInit init;
+	init.dtor = 0;
+	init.stop = 0;
+	init.down = 0;
+	init.members = 0;
+	init.dyncall = 0;
+	return &init;
+}')
 @:buildXml('<files id="haxe">
 	<compilerflag value="-I${hxler_erts_include}" />
+	<compilerflag value="-I${hxler_sdk_include}" />
 </files>
 <files id="__main__">
 	<compilerflag value="-I${hxler_erts_include}" />
+	<compilerflag value="-I${hxler_sdk_include}" />
 </files>')
 class Check {
 	public static function main() {}

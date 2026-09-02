@@ -349,7 +349,9 @@ class RawGen {
 					return mkPath("cpp.Pointer<hxler.nif.raw.ErlNifResourceTypeInit>");
 				case "ErlNifIOVec":
 					return mkPath("cpp.Pointer<hxler.nif.raw.ErlNifIOVec>");
-				case "ErlNifResourceFlags" | "ErlNifTSDKey" | "int":
+				case "ErlNifResourceFlags":
+					return mkPath("cpp.Star<cpp.Void>");
+				case "ErlNifTSDKey" | "int":
 					return mkPath("cpp.Pointer<Int>");
 				case "unsigned" | "unsigned int":
 					return mkPath("cpp.Pointer<cpp.UInt32>");
