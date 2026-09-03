@@ -158,42 +158,231 @@ public static function atomText(env:Env, _argc:Int, argv:cpp.Pointer<hxler.nif.r
 
 ### Resources: native state between calls
 
+Resources let you keep a **Haxe object alive on the native heap between NIF
+calls**. Elixir only sees an opaque, refcounted resource term; the Haxe side
+sees the object through a `ResourceArc<T>`. This is the go-to mechanism when
+you need real native state (buffers, sockets, caches, connection handles)
+instead of serializing back and forth.
+
+`mix hxler.gen my_nif --module Example.MyNif --with-resources` scaffolds a
+ready-to-use example. **Without** `--with-resources` the same works — you
+just write the pieces yourself as below.
+
+#### Haxe side — the payload
+
 ```haxe
+package my_nif;
+
+@:keep
 class Accum implements hxler.core.Resource {
     public var items:Array<Int> = [];
     public function new() {}
     public function push(v:Int):Void items.push(v);
+    public function sum():Int {
+        var acc = 0;
+        for (v in items) acc += v;
+        return acc;
+    }
+}
+```
+
+Any `@:keep` class implementing `hxler.core.Resource` (a marker interface)
+is a valid payload. It lives on the **hxcpp heap**, rooted for as long as an
+Elixir caller holds the resource term.
+
+#### Haxe side — the NIF functions
+
+`ResourceArc.make(obj)` packages an object into a resource; `arc.get()` reads
+it back inside a call:
+
+```haxe
+@:nif
+public static function accumNew():hxler.core.ResourceArc<my_nif.Accum> {
+    return hxler.core.ResourceArc.make(new my_nif.Accum());
 }
 
 @:nif
-public static function accumNew():hxler.core.ResourceArc<Accum> {
-    return hxler.core.ResourceArc.make(new Accum());
+public static function accumPush(arc:hxler.core.ResourceArc<my_nif.Accum>, v:Int):Void {
+    arc.get().push(v);          // mutates THE object elixir holds
 }
 
 @:nif
-public static function accumPush(arc:hxler.core.ResourceArc<Accum>, v:Int):Void {
-    arc.get().push(v);
+public static function accumSum(arc:hxler.core.ResourceArc<my_nif.Accum>):Int {
+    return arc.get().sum();
+}
+
+@:nif
+public static function isAccum(t:hxler.core.Term):Bool {
+    return t.tryGetResource(my_nif.Accum) != null;   // type-check by class
+}
+```
+
+Mutations to the payload **survive the call boundary** — `arc.get()` returns
+the same object that `accumNew` created, so `accum_sum` sees accumulated
+state.
+
+#### Register the resource type
+
+The resource type must be registered in a Haxe **load callback**, passed as
+the third argument to `EntryBuilder.build`:
+
+```haxe
+// ResourceInit.hx
+@:keep
+class ResourceInit {
+    public static function load(env:hxler.core.Env, _loadInfo:hxler.core.Term):Bool {
+        return env.registerResource(my_nif.Accum);
+    }
+}
+```
+
+```haxe
+// Entry.hx
+@:build(hxler.macros.EntryBuilder.build(
+    ["my_nif.MyNifNif"],
+    "Elixir.Example.MyNif",
+    "my_nif.ResourceInit.load"     // 3rd arg = load callback
+))
+class Entry {}
+```
+
+#### Elixir side — stubs and use
+
+```elixir
+defmodule Example.MyNif do
+  use Hxler, otp_app: :example, nif: :my_nif
+
+  def accum_new(), do: :erlang.nif_error(:nif_not_loaded)
+  def accum_push(_arc, _v), do: :erlang.nif_error(:nif_not_loaded)
+  def accum_sum(_arc), do: :erlang.nif_error(:nif_not_loaded)
+end
+```
+
+#### Using it
+
+```elixir
+# independent resources — each is a separate native object
+a = Example.MyNif.accum_new()
+b = Example.MyNif.accum_new()
+
+Example.MyNif.accum_push(a, 10)
+Example.MyNif.accum_push(a, 32)
+Example.MyNif.accum_push(b, 1)
+
+Example.MyNif.accum_sum(a)   # => 42  (independent of b)
+Example.MyNif.accum_sum(b)   # => 1
+
+# passing a non-resource where a resource is expected raises ArgumentError
+Example.MyNif.accum_sum(123) # raises
+Example.MyNif.is_accum(:foo) # => false
+```
+
+You can create as many resources as you like — each `accum_new()` takes a
+fresh slot in the holder table (see below); no limit beyond memory.
+
+#### Memory & lifetime (why it doesn't leak)
+
+Two independent layers hold a resource, and cleanup is automatic:
+
+```text
+accum_new()
+  └─ BEAM holds a refcounted resource term (Elixir side)
+  └─ hxcpp holds the Haxe object via an immortal holder slot
+
+Elixir drops the last reference (variable unreachable + GC, or process exit)
+  └─ BEAM calls enif_release_resource → the resource dtor
+  └─ glue (hx_res_dtor) runs hxler.core.ResourceCache.onResourceFree,
+     which frees the holder slot (exactly once)
+
+holder slot freed
+  └─ the Haxe object is no longer rooted
+  └─ the next hxcpp GC (Immix mark/sweep) collects and frees it
+```
+
+Under the hood the BEAM resource frame stores only an **integer slot index**
+into the SDK's immortal holder table (`ResourceCache.holders:Array<Dynamic>`),
+not a raw pointer. That is deliberate: the hxcpp Immix compactor does **not**
+update addresses in foreign (BEAM) memory, so the frame must not point at the
+object directly. The object is released exactly once (once-flag on the arc;
+the hxcpp finalizer fires `enif_release_resource`), and freed slots are
+reused. dtor/down/finalizers always run under `hxler_ensure_boot()` +
+`HxStackGuard` because BEAM may call them on a scheduler thread with no
+hxcpp context.
+
+So: no manual `free` — resource lifespan matches the Elixir term's reachability,
+and the underlying object is reclaimed when the slot dies. Leaks only occur if
+you keep resources alive indefinitely (e.g. store them in a long-lived Agent /
+ETS / table).
+
+### Owned envs, saved terms and pids (sending from Haxe)
+
+The Haxe side can **send messages to Elixir processes** — this is how you
+asynchronously hand results back (e.g. from a dirty or background call). It
+requires a process-independent `OwnedEnv` to build the message body inside.
+
+```haxe
+import hxler.core.Pid;
+import hxler.core.OwnedEnv;
+import hxler.core.Term;
+
+// decode a pid term, build the body in an OwnedEnv, enif_send to the target
+@:nif
+public static function sendMsg(target:hxler.core.Term, payload:hxler.core.Term):hxler.core.NifResult<hxler.core.Term> {
+    var pid = target.toPid();
+    if (pid == null) {
+        return NifResult.Error(NifError.Term(target.env.atom("bad_pid")));
+    }
+    var owned = new hxler.core.OwnedEnv();
+    var body = owned.tupleFromArray([owned.atom("from_nif"), payload.copyTo(owned.env)]);
+    var ok = pid.send(target.env, body);
+    owned.dispose();
+    return ok
+        ? NifResult.Ok(target.env.atom("ok"))
+        : NifResult.Error(NifError.Term(target.env.atom("send_failed")));
 }
 ```
 
 ```elixir
-acc = Example.MyNif.accum_new()
-Example.MyNif.accum_push(acc, 1)
-Example.MyNif.accum_sum(acc)  # => 1
+receiver = spawn(fn ->
+  receive do
+    msg -> IO.inspect(msg)   # => {:from_nif, {:foo, [1, 2, 3], "héllo"}}
+  end
+end)
+
+Example.MyNif.send_msg(receiver, {:foo, [1, 2, 3], "héllo"})  # => :ok
+Example.MyNif.send_msg(123, :x)                              # => {:error, :bad_pid}
 ```
 
-Resources must be registered in a load callback
-(`--with-resources` in `mix hxler.gen` scaffolds this; see `native/math/`
-for a full example).
+The rules that matter (see AGENTS, "Фаза 6"):
 
-### Owned envs and pids
+- **Build the body in an `OwnedEnv`** (`enif_alloc_env`) — the caller's env
+  is not allowed as the message env on a scheduler thread. `OwnedEnv` provides
+  the same makers (`int`, `tupleFromArray`, `atom`, ...); copy foreign terms
+  in with `payload.copyTo(owned.env)`.
+- `dispose()` the `OwnedEnv` after the send (or reuse it with `clear()`).
+- `to_pid` must be a **different process** than the caller — self-send via
+  `enif_send` is not supported.
+- `Pid` decodes from a term with `toPid()` (returns `null` if it isn't a pid).
+  Other primitives: `Pid.self(env)`, `Pid.whereis(env, name)`, `isAlive(env)`,
+  `setUndefined()`/`isUndefined()`; `Env` has `self`, `pidOf`, `whereis`,
+  `isProcessAlive`, `isCurrentProcessAlive`, `send`.
+
+**Owned env + saved terms** let you hold terms across calls in a background
+task and load them on demand. `SavedTerm.save(term)` captures a raw term +
+env generation; `load(dstEnv)` copies it back (`enif_make_copy`) only if the
+env is alive and its generation hasn't moved (otherwise returns `null`). This
+is the safe way to keep event payloads outliving the NIF call:
 
 ```haxe
 var owned = new hxler.core.OwnedEnv();
-var pid = hxler.core.Pid.self(env);
-pid.send(env, hxler.core.AtomCache.intern("hi").toTerm(owned.env()));
+var a = owned.int(111);
+var saved = owned.save(a);   // survives subsequent calls while owned is alive
+var t = saved.load(env);     // later: copies into the call env, or null if stale
 owned.dispose();
 ```
+
+`Env.makeRef` produces a `ref` from any env; see `native/math/` for a worked
+example (`Phase6Nif.hx`).
 
 ## How compilation works
 
@@ -218,7 +407,11 @@ towards arity.
 ## Tests
 
 - `mix test` — E2E ExUnit suite (arithmetic, strings/lists/maps, option/
-  result, resources + dtor, dirty_cpu, refs, pids, parallel stress).
+  result, dirty_cpu, refs, parallel stress). Resource coverage: round-trip +
+  dtor, multiple independent resources, state surviving calls, badarg on a
+  non-resource term, reclaim-under-GC. Owned env/pids: pid type/alive,
+  cross-process `send_msg` (including complex payloads through the owned
+  env), bad-pid error, saved_term gens/load, `whereis_alive`, `make_ref`.
 - `hxler/test.hxml` — Haxe-side utest suite (ABI constants, wrappers).
 - `hxler/check.hxml` — compile-time ABI verification of all raw `enif_*`
   wrappers against the real ERTS headers.

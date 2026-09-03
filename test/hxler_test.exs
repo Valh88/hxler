@@ -72,6 +72,52 @@ defmodule HxlerTest do
     assert M.is_accum(:not_an_accum) == false
   end
 
+  test "multiple independent resources do not interfere" do
+    a = M.accum_new()
+    b = M.accum_new()
+
+    for i <- 1..10, do: M.accum_push(a, i)
+    for i <- 1..3, do: M.accum_push(b, i)
+
+    assert M.accum_len(a) == 10
+    assert M.accum_sum(a) == 55
+    assert M.accum_len(b) == 3
+    assert M.accum_sum(b) == 6
+  end
+
+  test "native state survives across calls (mutations persist)" do
+    acc = M.accum_new()
+    assert M.accum_sum(acc) == 0
+
+    M.accum_push(acc, 7)
+    M.accum_push(acc, 35)
+    assert M.accum_sum(acc) == 42
+
+    M.accum_push(acc, 99)
+    assert M.accum_sum(acc) == 141
+  end
+
+  test "rustler-style badarg on a non-resource term" do
+    # a non-resource term must not be accepted where a resource is expected
+    assert_raise ArgumentError, fn -> M.accum_sum(123) end
+    refute M.is_accum(123)
+  end
+
+  test "resources are reclaimed after GC (dtor path)" do
+    # keep one alive and hammer VM allocation/collection; short-lived arcs
+    # are finalised by the hxcpp finalizer -> enif_release_resource -> dtor
+    live = M.accum_new()
+
+    for _ <- 1..200 do
+      short = M.accum_new()
+      for i <- 1..50, do: M.accum_push(short, i)
+      if M.accum_sum(short) != 1275, do: flunk("bad sum in short-lived arc")
+      :erlang.garbage_collect()
+    end
+
+    assert M.accum_sum(live) == 0
+  end
+
   # -- phase 6: owned env + pids -------------------------------------------
   test "pid type / alive" do
     assert M.pid_type(self()) == :pid
@@ -101,6 +147,23 @@ defmodule HxlerTest do
 
   test "send_msg bad pid -> error" do
     assert M.send_msg(123, :x) == {:error, :bad_pid}
+  end
+
+  test "send_msg carries complex payload through the owned env" do
+    parent = self()
+
+    receiver =
+      spawn(fn ->
+        receive do
+          msg -> send(parent, {:got, msg})
+        end
+      end)
+
+    payload = {:foo, [1, 2, 3], "héllo"}
+    assert M.send_msg(receiver, payload) == :ok
+
+    # payload crossed the BEAM boundary via enif_send and comes back identical
+    assert_receive {:got, {:from_nif, {:foo, [1, 2, 3], "héllo"}}}
   end
 
   test "saved_term_gens" do

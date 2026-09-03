@@ -519,6 +519,31 @@ spike5 (AGENTS «Хардкорные факты»), НЕ дефект фазы 
 - spike.exs/spike5.exs/spike6.exs — фазы 0–6 не трогает (Elixir-сторона
   добавляет только приватный fixture `lib/math.ex` + стабы).
 
+### Генератор `mix hxler.gen` + consumer `example/` (дополнение к фазе 7)
+- `lib/mix/tasks/hxler.gen.ex` — `mix hxler.gen <nif> --module Elixir.Module
+  [--package pkg] [--with-resources]`: генерирует `native/<nif>/` (Haxe
+  пакет `pkg`, класс `<Nif>Nif.hx`, `Entry.hx`, `Main.hx`, `build.hxml`).
+  `--with-resources` добавляет `Accum.hx` + `ResourceInit.hx` (loadFn).
+  Пакет default = snake(nif); валидация аргументов — через
+  `OptionParser.parse` + `case {opts, [nif], []}` (паттерн-graward на nif).
+- **hxler.gen.ex, run**: `snake/1` (camel/snake → snake_case) и `cls/1`
+  (camelize) — helpers; `otp_app_hint/0` берёт `Mix.Project.config()[:app]`
+  (в mix run возвращает значение, НЕ только при `function_exported?`).
+- **Consumer `example/`**: path-dep `{:hxler, path: ".."}`. `Example.MyNif`
+  `use Hxler, otp_app: :example, nif: :my_nif` + стабы `add/2`/`greet/1`
+  (snake_case). `test/test_helper.exs` также ставит schedulers_online=1.
+  E2E: генератор → `mix compile` (haxe+hxcpp, копия DLL) → `mix test` 2/2.
+- **SDK-резолюция в compiler.ex**: `sdk_include/0` теперь читает dep из
+  `Mix.Project.config()[:deps]`: для path-dep берёт его `path:` (expand
+  относительно cwd) → `<path>/hxler/source`; `deps/hxler/hxler/source`
+  — для hex-dep. Это нужно, т.к. для path-dep Mix НЕ копирует исходники в
+  `deps/` (нет `deps/hxler` вовсе); app file формируется при
+  `mix deps.compile hxler` в `_build/dev/lib/hxler/ebin/hxler.app`.
+- **haxe-класс path SDK**: build.hxml шаблона генератора содержит ТОЛЬКО
+  `-cp source`; компилятор ВПРЫСКИВАЕТ `-cp <sdk_include>` в команду haxe
+  (additive) — это переживает любую вложенность потребителя, в отличие от
+  хардкода `-cp ../../hxler/source` (оставлен только в bundled native/math).
+
 ### Можно ли пользоваться без фазы 7?
 Загрузка NIF (фаза 7) — стандартный `mix compile` + `@on_load`. Фазы 0–6
 проверяются спайками (spike*.exs) напрямую через `:erlang.load_nif`, без
