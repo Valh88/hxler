@@ -452,6 +452,23 @@ a function yourself to override it. Stub names are snake_case
 (`accumPush` → `accum_push`); explicit `env` first parameters do not count
 towards arity.
 
+### Manual `haxe build` vs `mix compile`
+
+You don't need to run the Haxe build by hand — `use Hxler` drives it for you.
+But if you do run tools directly, here's what counts:
+
+- A bare `haxe native/<nif>/build.hxml` only produces C++ in
+  `native/<nif>/bin/cpp/` plus `hxler_manifest.txt` — **no DLL yet**. `Main.dll`
+  is produced by `haxelib run hxcpp`, not by `haxe`.
+- `mix compile` (or `mix test`) → `use Hxler` → stale-check against
+  `priv/native/<nif>.dll|.so`. It recompiles **only when that artifact is
+  missing or older than a `.hx`/`build.hxml` source**; otherwise the Haxe build
+  is skipped entirely (the manifest is still read for auto-stubs).
+
+So the normal workflow is just `mix compile` / `mix test` — no manual steps.
+A manual `haxe` is only useful for a quick syntax/semantic check; the actual
+loadable DLL is always produced and copied by `Hxler.Compiler`.
+
 ## Tests
 
 - `mix test` — E2E ExUnit suite (arithmetic, strings/lists/maps, option/

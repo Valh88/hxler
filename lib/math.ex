@@ -13,4 +13,12 @@ defmodule Hxler.Math do
   """
 
   use Hxler, otp_app: :hxler, nif: :math
+
+  # A user-defined function with the same (name, arity) as a NIF overrides the
+  # auto-generated stub: the macro sees `greet/1` is already defined and does
+  # not emit a second one (which would be a duplicate-definition error).
+  # `load_nif` still binds this to the C implementation at runtime.
+  def greet(_name) do
+    :erlang.nif_error(:nif_not_loaded)
+  end
 end

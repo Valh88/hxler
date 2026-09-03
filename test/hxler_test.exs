@@ -15,7 +15,10 @@ defmodule HxlerTest do
     assert M.sum64(2_000_000_000, 2_000_000_000) == 4_000_000_000
   end
 
-  test "greet" do
+  test "greet (user-defined stub overrides auto-generation)" do
+    # lib/math.ex defines greet/1 by hand; the macro must NOT emit a second
+    # definition (would be a duplicate). load_nif still rebinds it to the C
+    # implementation.
     assert M.greet("hx") == "Hello, hx!"
   end
 
