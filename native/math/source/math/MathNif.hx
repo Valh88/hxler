@@ -31,6 +31,18 @@ class MathNif {
 		return "Hello, " + name + "!";
 	}
 
+	// overload: same NIF name, different arity -> ERL_NIF exports
+	// same_name/1 and same_name/2 (Haxe itself can't overload by arity).
+	@:nif(name = "same_name")
+	public static function sameName1(a:Int):Int {
+		return a * 10;
+	}
+
+	@:nif(name = "same_name")
+	public static function sameName2(a:Int, b:Int):Int {
+		return a * 10 + b;
+	}
+
 	@:nif(schedule = "dirty_cpu")
 	public static function fib(n:haxe.Int64):haxe.Int64 {
 		var a:haxe.Int64 = 0;

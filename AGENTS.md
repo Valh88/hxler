@@ -14,8 +14,10 @@
 Сейчас реализованы фазы 0–6 (stateless-NIF'ы, ресурсы, owned env + пиды —
 см. разделы «Фаза 5 — статус», «Фаза 6 — статус») и фаза 7 (Mix-интеграция:
 `use Hxler` компилирует `native/<nif>` и грузит NIF через `@on_load`,
-см. «Фаза 7 — статус»). Остались только up/down-колбэки ресурсов фазы 8.
-Пример: `native/math/` → `Hxler.Math` (ExUnit E2E 20 тестов).
+см. «Фаза 7 — статус»). Фаза 8 — ВНЕ скоупа v0.1: план обновлён (см. ниже)
+с точной картой нехватющих erl_nif-привязок. Пример: `native/math/` →
+`Hxler.Math` (ExUnit E2E 25 тестов). Регресс: 25/25 mix test, utest 94/94,
+check.hxml (161 raw-functions).
 
 ## План: hxler — «mini-rustler» на Haxe/HXCPP для Elixir NIF
 
@@ -201,10 +203,11 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   строки/списки/мапы/кортежи, Option/Result, атомы-кэш, resource
   round-trip + dtor, dirty_cpu, бadarg, параллельный стресс (Task.async × N);
   детерминизм `mix test` под `schedulers_online=1` (см. «Фаза 7 — статус»).
-- **Фаза 8 — после v0.1 (вне скоупа):** derive-макросы структур
-  (NifStruct/NifTuple/NifRecord/unit/tagged enum-аналоги),
-  thread::spawn-хелпер, monitor/dynamic_resource_call полный,
-  upgrade-колбэк, Linux-верификация, публикация haxelib+hex.
+- **Фаза 8 — после v0.1 (ВНЕ скоупа):** так и есть — это «куча нехватющих
+  привязок» поверх полного raw-слоя (161 функция сгенерирована, но лишь ~93
+  поднято в `hxler.core`/`Wrapper`). Итоги аудита полного списка 177
+  `ERL_NIF_API_FUNC_DECL` и точная карта «чего не хватает и куда двигаться»
+  — в разделе **«Фаза 8 — план»** ниже.
 
 Платформы: Windows-first (тестируем здесь); код пишется
 кросс-платформенно (Linux-ветка той же архитектуры). Минимальный OTP —
@@ -495,7 +498,7 @@ check.hxml (Check.dll), utest 94/94 ALL TESTS OK, spike.exs (фаза 4) —
   `savedTermGens`/`savedTermLoad`/`makeRefNif` — arity 0, т.к. явный `env`
   первый параметр не считается). Каждая функция ОБЯЗАНА иметь стаб до
   `load_nif`, иначе `{:bad_lib, "Function not found ..."}`
-- `test/hxler_test.exs` — ExUnit E2E (20 тестов) по всем фазам: арифметика,
+- `test/hxler_test.exs` — ExUnit E2E (25 тестов) по всем фазам: арифметика,
   64-bit, строки, dirty_cpu `fib`, `safe_div` (Ok→голый терм `5`,
   BadArg→`{:error, :zero_division}`), raw `atom_text` (не-atom→`ArgumentError`),
   list/map/bool/option, resource round-trip+dtor, pid_type/alive/send_msg/
@@ -508,12 +511,13 @@ Float) под multi-thread hxcpp GC (Immix глобальный lock), хотя 
 spike5 (AGENTS «Хардкорные факты»), НЕ дефект фазы 7. Решение:
 `test/test_helper.exs` ставит `:erlang.system_flag(:schedulers_online, 1)` →
 один scheduler = один hxcpp поток = детерминизм. Прогон 3× стабильно
-20/20 за 0.1s. Стресс-тест (Task.async_stream concurrency ≥2) остаётся в
+25/25 за 0.2s. Стресс-тест (Task.async_stream concurrency ≥2) остаётся в
 наборе и гоняет fib через dirty_cpu-потоки даже при 1 online scheduler
 (dirty-пул отдельный).
 
 ### Регресс (проверено после закрытия фазы 7)
-- `mix test --seed 0` = 20/20 (под schedulers_online=1).
+- `mix test --seed 0` = 25/25 (под schedulers_online=1; добавлены тесты
+  ресурсов и pid/send, см. ниже).
 - `hxler/test.hxml` (utest) = 94/94 ALL TESTS OK.
 - `hxler/check.hxml` (Check.dll) = OK, RawGen 161 raw-functions.
 - spike.exs/spike5.exs/spike6.exs — фазы 0–6 не трогает (Elixir-сторона
@@ -548,6 +552,59 @@ spike5 (AGENTS «Хардкорные факты»), НЕ дефект фазы 
 Загрузка NIF (фаза 7) — стандартный `mix compile` + `@on_load`. Фазы 0–6
 проверяются спайками (spike*.exs) напрямую через `:erlang.load_nif`, без
 `use Hxler`. Фаза 7 нужна только для «встроенной» сборки+загрузки в проекте.
+
+## Фаза 8 — план (аудит полноты привязок `enif_*`)
+
+Аудит 177 `ERL_NIF_API_FUNC_DECL` OTP 27.3.1 (NIF 2.17) против SDK, Wrapper
+и `hxler.core`. Метод: `nifnames` из снапшота → вычесть исключённые RawGen
+→ вычесть функции, реально вызываемые высшим слоем (grep `Raw.` по
+`hxler/source`). Результат — точная карта нехватющих привязок.
+
+### Покрытие в цифрах
+- **177** — всего в заголовке.
+- **161** — сгенерировано в raw-слой (`Raw`, `@:build RawGen`). Исключены
+  15 сознательно: вариадики (`make_tuple/make_list/fprintf/vfprintf/
+  snprintf/vsnprintf/set_option`), функции с fn-указателем
+  (`dlopen/dlsym/thread_create/schedule_nif/open_resource_type`), long-ABI
+  (`get/make_long`, `get/make_ulong`). `snprintf` и `init_resource_type`
+  (замена `open_resource_type`) уже используются inline `untyped __cpp__`.
+- **93** — поднято в высший слой (Wrapper + `hxler.core`).
+- **~77** — сырая привязка ЕСТЬ, но НЕ обернута в типизированный API.
+  Это и есть реальная «недоделанность» фазы 8.
+
+### Карта нехватющих кластеров (по убыванию пользы)
+
+| Кластер | Сырые функции (есть в `Raw`) | Чего нет в `hxler.core` |
+|---|---|---|
+| **Мониторы** | `monitor_process`, `demonitor_process`, `make_monitor_term`, `compare_monitors` (тип `ErlNifMonitor` есть) | `Monitor` API: begin/end/compare/toTerm/is_monitor |
+| **Порты / dynamic** | `get_local_port`, `whereis_port`, `port_command`, `is_port(_alive)`, `dynamic_resource_call` | полный `dynamic_resource_call` (сейчас для `ResourceArc` нет) |
+| **I/O-очередь (IOQ)** | `ioq_create/deq/destroy/enq_binary/enqv/peek/peek_head/size`, `free_iovec`, `inspect_iovec` | `EnifIOQueue`-хелпер (high-throughput binary буфер) |
+| **Selector / async events** | `select`, `select_x` + `enif_ioctl`-флаги | event-driven async (aio/port) паттерн |
+| **Потоки** | `thread_join/ex/self/name/opts_create/opts_destroy`, `equal_tids` (типы есть) | `thread::spawn`-хелпер на замыкание; `enif_thread_create` исключён (fn-ptr) → inline glue |
+| **Синхронизация** | `mutex_*`, `cond_*`, `rwlock_*`, `tsd_*` (типы есть) | типизированные Lock/Cond/RWLock/TSD |
+| **Хэш-таблица / time** | `enif_hash`(исп.), `system_info`, `time_offset`(исп.) | `system_info` → `ErlNifSysInfo` |
+| **Map iteration** | `map_iterator_(is_head/is_tail/prev)` | бидirectional map-итератор |
+| **Строки/атомы** | `make_atom`, `make_existing_atom`, `make_string(_len)`, `get_string(_length)`, `getenv` | дублируют AtomCache/copy; вручную |
+| **Аллокация** | `alloc`, `free`, `realloc`, `alloc_binary`, `realloc_binary` | редко нужны (hxcpp GC; только для BEAM-буферов) |
+
+### Приоритеты перед публикацией (рекомендация)
+1. **Мониторы** — самый востребованный недостающий кусок (`monitor_process`
+   + `ErlNifMonitor` + `Term.is_monitor`). Rust-аналог есть в rustler.
+2. **`dynamic_resource_call`** — уже используется неявно для ресурсов; догнать
+   высокоуровневую обёртку (up/down 2.17).
+3. **`thread::spawn`-хелпер** — закрывает «ручной» enif_thread_create
+   (сейчас исключён, т.к. fn-указатель): inline `__cpp__` glue как в
+   `hx_res_dtor`/`EntryBuilder`.
+4. **IOQ** — для высокопроизводительной бинарной записи, если нужна.
+5. **Selector/async** — большая работа, дефолтно отложить.
+
+### Вне raw-покрытия (не привязки, а фичи)
+- derive-макросы структур: NifStruct/NifTuple/NifRecord/tagged-enum (в духе
+  rustler `#[derive(NifStruct)]`).
+- upgrade-колбэк (`ERL_NIF_SELECT`/reload path) — сейчас `@on_load` только
+  `code.purge` + `load_nif`, hot-upgrade не поддержан.
+- Linux-верификация + публикация haxelib (`haxelib submit`) и hex (`mix
+  hex.publish`).
 
 ## BEAM-потоки под NIF (на этой машине: 8 логических CPU)
 

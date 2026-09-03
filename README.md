@@ -156,6 +156,40 @@ public static function atomText(env:Env, _argc:Int, argv:cpp.Pointer<hxler.nif.r
 }
 ```
 
+### Overloads: same name, different arity
+
+A NIF is identified by **(name, arity)**, not name alone. Haxe itself doesn't
+overload by arity, so give two **differently-named** `@:nif` functions the
+**same NIF name** via `@:nif(name = "...")` — they become distinct NIFs
+exposed from Elixir as e.g. `add/1` and `add/2`. Each needs its own Elixir
+stub:
+
+```haxe
+@:nif(name = "add")
+public static function add1(a:Int):Int {
+    return a + 1;
+}
+
+@:nif(name = "add")
+public static function add2(a:Int, b:Int):Int {
+    return a + b;
+}
+```
+
+```elixir
+def add(_a), do: :erlang.nif_error(:nif_not_loaded)
+def add(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
+```
+
+```elixir
+Example.MyNif.add(41)      # 42
+Example.MyNif.add(20, 22)  # 42
+```
+
+An explicit `@:nif(arity = N)` only applies to raw functions (see above);
+for wrapped functions the arity is derived from the parameter count (an
+explicit `arity=` that disagrees is a compile error).
+
 ### Resources: native state between calls
 
 Resources let you keep a **Haxe object alive on the native heap between NIF

@@ -19,6 +19,13 @@ defmodule HxlerTest do
     assert M.greet("hx") == "Hello, hx!"
   end
 
+  test "overload same NIF name with different arity" do
+    # same_name is one @:nif pair mapped to the same NIF name ("same_name"),
+    # exported as two functions by (name, arity): same_name/1 and same_name/2.
+    assert M.same_name(4) == 40
+    assert M.same_name(4, 2) == 42
+  end
+
   test "fib (dirty_cpu)" do
     assert M.fib(10) == 55
     assert M.fib(20) == 6765

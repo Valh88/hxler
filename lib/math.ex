@@ -5,10 +5,11 @@ defmodule Hxler.Math do
   Functions: arithmetic (`add/2`, `sum64/2`), strings (`greet/1`), lists
   (`list_sum/1`), maps (`map_sum/1`), option (`opt_or42/1`), mixed
   (`both/2`), dirty_cpu (`fib/1`), error handling (`safe_div/2`), raw NIF
-  (`atom_text/1`), resources (`accum_new/0`, `accum_push/2`, `accum_sum/1`,
-  `accum_len/1`, `is_accum/1`), and owned env/pids (`pid_type/1`,
-  `pid_alive/1`, `send_msg/2`, `saved_term_gens/0`, `saved_term_load/0`,
-  `make_ref_nif/0`, `whereis_alive/1`).
+  (`atom_text/1`), arity-overload (`same_name/1`, `same_name/2`), resources
+  (`accum_new/0`, `accum_push/2`, `accum_sum/1`, `accum_len/1`,
+  `is_accum/1`), and owned env/pids (`pid_type/1`, `pid_alive/1`,
+  `send_msg/2`, `saved_term_gens/0`, `saved_term_load/0`, `make_ref_nif/0`,
+  `whereis_alive/1`).
   """
 
   use Hxler, otp_app: :hxler, nif: :math
@@ -17,6 +18,8 @@ defmodule Hxler.Math do
   def add(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
   def sum64(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
   def greet(_name), do: :erlang.nif_error(:nif_not_loaded)
+  def same_name(_a), do: :erlang.nif_error(:nif_not_loaded)
+  def same_name(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
   def fib(_n), do: :erlang.nif_error(:nif_not_loaded)
   def safe_div(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
   def atom_text(_t), do: :erlang.nif_error(:nif_not_loaded)
