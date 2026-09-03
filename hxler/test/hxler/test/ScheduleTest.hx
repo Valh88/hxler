@@ -6,17 +6,19 @@ import hxler.nif.raw.NifFuncFlags;
 /** Scheduler selection values must match ErlNifFunc.flags (ABI). */
 class ScheduleTest extends utest.Test {
 	function testValues() {
-		utest.Assert.equals(0, Schedule.Normal);
-		utest.Assert.equals(1, Schedule.DirtyCpu);
-		utest.Assert.equals(2, Schedule.DirtyIo);
+		// cast to Int: utest's `equals` is generic (git) vs Dynamic (release),
+		// so an enum abstract only typechecks when explicitly cast.
+		utest.Assert.equals(0, (cast Schedule.Normal : Int));
+		utest.Assert.equals(1, (cast Schedule.DirtyCpu : Int));
+		utest.Assert.equals(2, (cast Schedule.DirtyIo : Int));
 	}
 
 	function testMatchesFuncFlags() {
 		// the schedule an @:nif(schedule=...) wraps into must agree with the
 		// raw ErlNifFunc.flags the BEAM scheduler dispatches on.
-		utest.Assert.equals(NifFuncFlags.NORMAL, Schedule.Normal);
-		utest.Assert.equals(NifFuncFlags.DIRTY_CPU, Schedule.DirtyCpu);
-		utest.Assert.equals(NifFuncFlags.DIRTY_IO, Schedule.DirtyIo);
+		utest.Assert.equals(NifFuncFlags.NORMAL, (cast Schedule.Normal : Int));
+		utest.Assert.equals(NifFuncFlags.DIRTY_CPU, (cast Schedule.DirtyCpu : Int));
+		utest.Assert.equals(NifFuncFlags.DIRTY_IO, (cast Schedule.DirtyIo : Int));
 	}
 
 	function testToString() {

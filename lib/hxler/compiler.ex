@@ -9,6 +9,33 @@ defmodule Hxler.Compiler do
 
   @ext if match?({:win32, _}, :os.type()), do: ".dll", else: ".so"
 
+  # hxcpp names the linux shared library `.dso` (linux-toolchain.xml), but the
+  # NIF is deployed as `.so`. The destination extension stays `.so`; the
+  # source artifact wildcard must accept both.
+  @src_exts if match?({:win32, _}, :os.type()), do: [".dll"], else: [".so", ".dso"]
+
+  # Linux-only defines required by the hxler NIF glue. Windows (MSVC) uses
+  # dynamic enif callbacks and a working PCH, so they must not be added there.
+  defp linux_defines do
+    case :os.type() do
+      {:unix, _} ->
+        [
+          # GCC 13+ rejects hxcpp 4.3.2's precompiled headers (the .gch lives
+          # in a different dir than the source hxcpp.h): "hxcpp.h: No such
+          # file". Disable the PCH; compile hxcpp.h directly.
+          "NO_PRECOMPILED_HEADERS",
+          # enif_* symbols are resolved from the running BEAM at load time, not
+          # from a linked library. linux-toolchain.xml links shared objects
+          # with --no-undefined unless this is defined.
+          "HXCPP_ALLOW_UNDEFINED"
+        ]
+        |> Enum.flat_map(&["-D", &1])
+
+      _ ->
+        []
+    end
+  end
+
   defstruct otp_app: nil, nif: nil, path: nil, external_resources: [], functions: []
 
   # Returns a %Hxler.Compiler{} with the resolved build + copied artifact.
@@ -106,7 +133,7 @@ defmodule Hxler.Compiler do
           "hxler_sdk_include=#{sdk_include}",
           "-cp",
           sdk_include
-        ],
+        ] ++ linux_defines(),
         cd: nif_dir,
         stderr_to_stdout: true
       )
@@ -128,7 +155,9 @@ defmodule Hxler.Compiler do
 
   defp copy_artifact(native_dir, nif, target) do
     built =
-      Path.wildcard(Path.join([native_dir, nif, "bin", "cpp", "*#{@ext}"]))
+      Enum.flat_map(@src_exts, fn ext ->
+        Path.wildcard(Path.join([native_dir, nif, "bin", "cpp", "*#{ext}"]))
+      end)
       |> Enum.filter(&File.regular?/1)
 
     if built == [] do
