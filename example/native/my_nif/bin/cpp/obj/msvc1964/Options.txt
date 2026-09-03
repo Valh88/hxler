@@ -1,4 +1,0 @@
-dll_link=1
-hxcpp_api_level=430
-hxcpp_smart_strings=1
-hxcpp=C:/Users/simpl/scoop/apps/haxe/current/lib/hxcpp/4,3,2/
