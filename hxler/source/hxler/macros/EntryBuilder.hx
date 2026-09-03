@@ -345,7 +345,29 @@ class EntryBuilder {
 		buf.add(elixirModule);
 		buf.add(', hx_funcs, hx_load_cb, NULL, NULL, NULL)\n');
 
+		// Write a manifest of {nif_name, arity} so the Elixir side can
+		// auto-generate stubs without owning the function list. The macro runs
+		// with cwd = the nif dir (Hxler.Compiler runs haxe with cd: nif_dir).
+		writeManifest(defs);
 		return buf.toString();
+	}
+
+	/** Emits `bin/cpp/hxler_manifest.txt` (one `name arity` per line). */
+	static function writeManifest(defs:Array<NifDef>):Void {
+		var out = new StringBuf();
+		for (d in defs) {
+			out.add(d.nif);
+			out.add(' ');
+			out.add(Std.string(d.arity));
+			out.add('\n');
+		}
+		var dirPath = haxe.io.Path.join(['bin', 'cpp']);
+		try {
+			sys.FileSystem.createDirectory(dirPath);
+			sys.io.File.saveContent(haxe.io.Path.join([dirPath, 'hxler_manifest.txt']), out.toString());
+		} catch (e:Dynamic) {
+			Context.warning('EntryBuilder: could not write hxler_manifest.txt: $e', Context.currentPos());
+		}
 	}
 
 	static function extractFunction(parsed:Expr, name:String, pos:Position):Field {

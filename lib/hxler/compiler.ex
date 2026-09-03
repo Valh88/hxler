@@ -9,7 +9,7 @@ defmodule Hxler.Compiler do
 
   @ext if match?({:win32, _}, :os.type()), do: ".dll", else: ".so"
 
-  defstruct otp_app: nil, nif: nil, path: nil, external_resources: []
+  defstruct otp_app: nil, nif: nil, path: nil, external_resources: [], functions: []
 
   # Returns a %Hxler.Compiler{} with the resolved build + copied artifact.
   def compile(otp_app, nif) do
@@ -41,8 +41,29 @@ defmodule Hxler.Compiler do
       otp_app: otp_app,
       nif: nif,
       path: "priv/native/#{nif}",
-      external_resources: sources
+      external_resources: sources,
+      functions: read_manifest(Path.join([native_dir, nif, "bin", "cpp", "hxler_manifest.txt"]))
     }
+  end
+
+  # Reads the {name, arity} manifest written by EntryBuilder (hxler_manifest.txt).
+  # The manifest is the source of truth for auto-generated stubs.
+  defp read_manifest(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        content
+        |> String.split("\n", trim: true)
+        |> Enum.map(fn line ->
+          case String.split(line) do
+            [name, arity] -> {String.to_atom(name), String.to_integer(arity)}
+            _ -> nil
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      {:error, _} ->
+        []
+    end
   end
 
   defp stale?(target, sources) do

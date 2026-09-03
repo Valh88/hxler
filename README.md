@@ -82,10 +82,6 @@ macros.
 ```elixir
 defmodule Example.MyNif do
   use Hxler, otp_app: :example, nif: :my_nif
-
-  # stubs: one per @:nif, names are snake_case (camelCase is converted)
-  def add(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
-  def greet(_name), do: :erlang.nif_error(:nif_not_loaded)
 end
 ```
 
@@ -93,6 +89,26 @@ end
 unchanged sources are not rebuilt), copies the artifact to
 `priv/native/<nif>.dll|.so` and installs an `@on_load` hook that calls
 `:erlang.load_nif`.
+
+**Stubs are generated automatically.** `use Hxler` reads a manifest of the
+NIF functions (written by the Haxe build) and defines a `nif_error(:nif_not_loaded)`
+stub for every `(name, arity)` you didn't define yourself:
+
+```elixir
+defmodule Example.MyNif do
+  use Hxler, otp_app: :example, nif: :my_nif
+
+  # the generated stubs are equivalent to writing these by hand:
+  #   def add(_a, _b),    do: :erlang.nif_error(:nif_not_loaded)
+  #   def greet(_name),   do: :erlang.nif_error(:nif_not_loaded)
+end
+```
+
+If you define a function yourself (e.g. to add a guard, a default, or wrap
+the call), the macro sees it and **skips** auto-generating it — your
+definition wins. Stub names are snake_case (`add` → `add`; the NIF name comes
+from the `@:nif` function, or from `@:nif(name = "...")`); explicit `env`
+first parameters do not count towards arity.
 
 ### 4. Test
 
@@ -280,15 +296,12 @@ class ResourceInit {
 class Entry {}
 ```
 
-#### Elixir side — stubs and use
+#### Elixir side — use
 
 ```elixir
 defmodule Example.MyNif do
   use Hxler, otp_app: :example, nif: :my_nif
-
-  def accum_new(), do: :erlang.nif_error(:nif_not_loaded)
-  def accum_push(_arc, _v), do: :erlang.nif_error(:nif_not_loaded)
-  def accum_sum(_arc), do: :erlang.nif_error(:nif_not_loaded)
+  # stubs are generated automatically (accum_new/0, accum_push/2, accum_sum/1)
 end
 ```
 
@@ -432,9 +445,10 @@ example (`Phase6Nif.hx`).
 4. `@on_load` → `:code.purge(__MODULE__)` + `:erlang.load_nif` (no
    hot-upgrade).
 
-Each `@:nif` function must have a stub in the Elixir module **before**
-`load_nif`, otherwise the load fails with
-`{:bad_lib, "Function not found ..."}`. Stub names are snake_case
+Every `@:nif` function must exist in the Elixir module **before** `load_nif`,
+otherwise the load fails with `{:bad_lib, "Function not found ..."}`. By
+default `use Hxler` auto-generates these stubs from the build manifest; write
+a function yourself to override it. Stub names are snake_case
 (`accumPush` → `accum_push`); explicit `env` first parameters do not count
 towards arity.
 

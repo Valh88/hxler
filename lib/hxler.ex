@@ -24,6 +24,13 @@ defmodule Hxler do
       `:otp_app` value.
 
   Any option given to `use` overrides the app configuration.
+
+  ## Stubs are generated automatically
+
+  `use Hxler` reads a manifest of NIF functions (written by the Haxe build,
+  `hxler_manifest.txt`) and defines a `:erlang.nif_error(:nif_not_loaded)`
+  stub for every `(name, arity)` not already defined in the module. Define a
+  function yourself to override the auto-generated stub.
   """
 
   defmacro __using__(opts) do
@@ -44,6 +51,7 @@ defmodule Hxler do
 
       @hxler_otp_app otp_app
       @hxler_load_from build.path
+      @hxler_functions build.functions
       @before_compile Hxler
     end
   end
@@ -51,21 +59,46 @@ defmodule Hxler do
   defmacro __before_compile__(env) do
     otp_app = Module.get_attribute(env.module, :hxler_otp_app)
     load_from = Module.get_attribute(env.module, :hxler_load_from)
+    functions = Module.get_attribute(env.module, :hxler_functions) || []
+
+    existing =
+      env.module
+      |> Module.definitions_in()
+      |> MapSet.new()
+
+    stubs =
+      for {name, arity} <- functions,
+          not MapSet.member?(existing, {name, arity}) do
+        args = Macro.generate_arguments(arity, __MODULE__)
+
+        quote do
+          @doc false
+          def unquote(name)(unquote_splicing(args)) do
+            :erlang.nif_error(:nif_not_loaded)
+          end
+        end
+      end
+
+    init =
+      quote do
+        @on_load :hxler_init
+
+        @doc false
+        def hxler_init do
+          :code.purge(__MODULE__)
+
+          load_path =
+            unquote(otp_app)
+            |> Application.app_dir(unquote(load_from))
+            |> to_charlist()
+
+          :erlang.load_nif(load_path, 0)
+        end
+      end
 
     quote do
-      @on_load :hxler_init
-
-      @doc false
-      def hxler_init do
-        :code.purge(__MODULE__)
-
-        load_path =
-          unquote(otp_app)
-          |> Application.app_dir(unquote(load_from))
-          |> to_charlist()
-
-        :erlang.load_nif(load_path, 0)
-      end
+      unquote_splicing(stubs)
+      unquote(init)
     end
   end
 end
