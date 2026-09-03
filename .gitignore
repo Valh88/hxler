@@ -16,6 +16,12 @@
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
 
+# Session state (opencode session markers).
+/.session/
+
+# Agent/expert state and logs.
+/.expert/
+
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
@@ -29,3 +35,4 @@ native/math/bin/cpp/
 hxler/bin/
 native/math/erl_crash.dump
 example/priv/native/
+.expert/

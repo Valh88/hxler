@@ -348,6 +348,20 @@ Hxler.Math.greet("hx")        # "Hello, hx!"
   (BEAM) памяти. Второй баг этой схемы: удаляемые Haxe-объекты живут в
   static-корнях → слоты освобождаются dtor'ом через freeSlots (переиспол-ние).
 - `ResourceArc` release — ровно один раз (флаг once), из финалайзера hxcpp.
+- **Ручное управление памятью для BEAM-буферов (уже используется):**
+  hxcpp даёт `cpp.Pointer<T>` (ofData/ofArray/addressOf), `NativeArray.address`,
+  реинтерпретацию сырой памяти→Haxe-тип через `untyped __cpp__` касты и
+  свой GC (`gc.Gc`, `registerDispose`) — НО `enif_alloc`/`enif_alloc_binary`
+  выделяют память в куче BEAM (ERTS), про которую Immix-GC hxcpp НЕ знает.
+  Держать такой буфер = ручной `free`/`release_binary`, а не полагаться на
+  hxcpp GC. В SDK это уже зашито: `BinaryBuf`/`OwnedBinary` и `NewBinary`
+  (BEAM-хранилище, fill через `__cpp__ memcpy`), плюс `Mem.hx`
+  (Bytes↔raw src от `NativeArray.address`). Реинтерпретация raw-памяти как
+  Haxe-типа точечно: `ResourceCache.hx:135` (`(HxResourceFrame*)obj`),
+  `Pid.hx:31` (`(ErlNifPid*)&pidWord`). Generic `enif_alloc/free/realloc`
+  СГЕНЕРИРОВАНЫ в Raw, но НЕ обёрнуты в `hxler.core` (фаза 8, кластер
+  «Аллокация») — для бинарников рабочий путь `OwnedBinary`/`NewBinary`
+  предпочтительнее generic-malloc (BEAM знает про binary: bulk-offload, refcount).
 - `Term.raw` — примитив (NifTerm = UInt64/UInt32), НЕ hx::Object-поле:
   hxcpp не сканирует BEAM-слова; conservative-скан отбрасывает адреса
   вне hxcpp-регионов.
